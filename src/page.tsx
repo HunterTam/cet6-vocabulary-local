@@ -1,17 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Clock3, Cloud, CloudOff, ExternalLink, Eye, Flame, Headphones, Layers3, LibraryBig, PencilLine, Play, Plus, RefreshCw, Search, Shuffle, Sparkles, Star, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
+import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, ChevronDown, ChevronRight, Cloud, Eye, Flame, Headphones, LibraryBig, PencilLine, Play, Plus, Search, Settings2, Shuffle, Sparkles, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
 import { dateKey, firstAnswer, type Entry } from "./data";
 import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, studyStreakDays, vocabulary, type Card, type Mode } from "./vocabulary";
 import { dailyBatches } from "./daily-vocabulary";
-import { readingDocUrl, type ParsedImportCard } from "./reading-vocabulary";
+import { type ParsedImportCard } from "./reading-vocabulary";
 import { ReviewCurve } from "./review-curve";
 import { importGptNotes, importRecords, listRecords, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
-import { clearGistConfig, githubTokenCreateUrl, readGistConfig, syncWithGist, type GistConfig } from "./cloud-sync";
+import { clearGistConfig, readGistConfig, syncWithGist, type GistConfig } from "./cloud-sync";
 import { ListeningReview } from "./listening-review";
 import { FlashcardStudio } from "./flashcard-studio";
 import { GptImportModal } from "./gpt-import-modal";
+import { DeckPickerModal, type DeckItem } from "./deck-picker-modal";
+import { SyncSettingsModal } from "./sync-settings-modal";
 import {
   buildStudySession,
   readAudioPrefs,
@@ -27,16 +29,8 @@ import {
   type StudyPrefs,
 } from "./study-session";
 import heroArt from "./images/model-0.webp?inline";
-import spellingArt from "./images/model-1.webp?inline";
-import recognizeArt from "./images/model-2.webp?inline";
-import recallArt from "./images/model-3.webp?inline";
 import "./vocabulary.css";
 
-const modeArt: Record<Mode, string> = {
-  recognize: recognizeArt,
-  spelling: spellingArt,
-  recall: recallArt,
-};
 const batchUnlockKey = "cet6-unlocked-batch-v1";
 const examDateKey = "cet6-exam-date-v1";
 const defaultExamDate = "2026-12-12";
@@ -46,15 +40,15 @@ const examPresets = [
 ] as const;
 
 const modes = [
-  {id:"recognize", title:"看词识义", badge:"推荐", detail:"自动播音，先想意思再翻卡，不认识自动重练。", icon:Eye},
-  {id:"spelling", title:"听音拼写", badge:"强记忆", detail:"听发音写出完整英文，拼错逐字母标红。", icon:AudioLines},
-  {id:"recall", title:"看义写词", badge:"考前冲刺", detail:"看中文释义回忆英文，训练主动提取。", icon:PencilLine},
+  {id:"recognize", title:"看词识义", icon:Eye},
+  {id:"spelling", title:"听音拼写", icon:AudioLines},
+  {id:"recall", title:"看义写词", icon:PencilLine},
 ] as const;
 
 const groupSizeOptions = [
-  {value:10, label:"10 词"},
-  {value:20, label:"20 词"},
-  {value:30, label:"30 词"},
+  {value:10, label:"10词"},
+  {value:20, label:"20词"},
+  {value:30, label:"30词"},
   {value:0, label:"全部"},
 ] as const;
 
@@ -67,15 +61,6 @@ const tabs = [
 ] as const;
 
 type View = (typeof tabs)[number]["id"];
-type DeckDef = {
-  id: string;
-  section: "smart" | "reading" | "book";
-  title: string;
-  subtitle: string;
-  tone: "purple" | "mint" | "orange" | "blue";
-  cards: Card[];
-  dayNum?: number;
-};
 const categories = ["单词","固定搭配","熟词生义","同义改写","关键句"];
 const sources = ["阅读积累库","阅读分析","词书复习","英语对话","手动积累"];
 const blank = {title:"", body:"", example:"", category:"单词"};
@@ -143,8 +128,9 @@ export default function VocabularyDesk() {
   const [studyPrefs, setStudyPrefs] = useState<StudyPrefs>(readStudyPrefs);
   const [activeSession, setActiveSession] = useState<SavedSession | null>(null);
   const [savedSession, setSavedSession] = useState<SavedSession | null>(readSavedSession);
+  const [deckModalOpen, setDeckModalOpen] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [gptModalOpen, setGptModalOpen] = useState(false);
-  const [peekCardId, setPeekCardId] = useState("");
   const [limit, setLimit] = useState(40);
   const [curveCard, setCurveCard] = useState("");
   const [query, setQuery] = useState("");
@@ -372,7 +358,7 @@ export default function VocabularyDesk() {
     [cards],
   );
 
-  const decks = useMemo<DeckDef[]>(() => {
+  const decks = useMemo<DeckItem[]>(() => {
     const readingWords = readingAllCards.filter(c => c.category === "单词" || c.category === "熟词生义");
     const readingPhrases = readingAllCards.filter(c => c.category === "固定搭配");
     const readingMeta = readingAllCards.filter(c => c.category === "同义改写" || c.category === "关键句");
@@ -479,7 +465,7 @@ export default function VocabularyDesk() {
     setSource(""); setCategory(""); setBatch(""); setQuery(""); setLimit(40); setCurveCard(""); setNotice(""); setError("");
   }
 
-  function launchSession(deck: DeckDef, mode: Mode, forceAll = false) {
+  function launchSession(deck: DeckItem, mode: Mode, forceAll = false) {
     if (deck.dayNum && deck.dayNum > activeDay) unlockBatchDay(deck.dayNum);
     const built = buildStudySession({
       deckId: deck.id,
@@ -669,12 +655,21 @@ export default function VocabularyDesk() {
     ? (studyPrefs.groupSize > 0 ? Math.min(studyPrefs.groupSize, activeDeckDue.length) : activeDeckDue.length)
     : (studyPrefs.groupSize > 0 ? Math.min(studyPrefs.groupSize, activeDeckPlayable.length) : activeDeckPlayable.length);
 
-  const previewCandidates = useMemo(() => {
-    const base = activeDeckDue.length ? activeDeckDue : activeDeckPlayable;
-    return base.slice(0, 6);
-  }, [activeDeckDue, activeDeckPlayable]);
+  function selectDeck(deck: DeckItem, startImmediately: boolean) {
+    setSelectedDeckId(deck.id);
+    if (deck.dayNum && deck.dayNum > activeDay) unlockBatchDay(deck.dayNum);
+    let nextMode = selectedMode;
+    if (!deck.cards.some(c => eligible(c, selectedMode)) && deck.cards.some(c => eligible(c, "recognize"))) {
+      nextMode = "recognize";
+      setSelectedMode("recognize");
+    }
+    if (startImmediately) launchSession(deck, nextMode);
+  }
 
-  const peekCard = previewCandidates.find(c => c.entry.id === peekCardId) ?? previewCandidates[0];
+  const quickDecks = useMemo(
+    () => ["reading-word", "reading-phrase", "gpt-daily"].map(id => decks.find(d => d.id === id)).filter((d): d is DeckItem => Boolean(d)),
+    [decks],
+  );
 
   const navCounts: Partial<Record<View, string>> = ready ? {
     review: String(duePlayableCount),
@@ -790,15 +785,8 @@ export default function VocabularyDesk() {
             type="button"
             className={"cloud-chip " + (gistConfig ? "connected" : "")}
             disabled={gistBusy}
-            onClick={() => {
-              if (gistConfig) {
-                void runGistSync();
-              } else {
-                navigate("review");
-                setTimeout(() => document.getElementById("cloud-sync-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
-              }
-            }}
-            title={gistConfig ? (gistMessage || `已连接 GitHub Gist 云同步（点击立即同步）`) : "配置 iPhone ↔ 电脑跨设备云同步"}
+            onClick={() => setSyncModalOpen(true)}
+            title={gistConfig ? (gistMessage || "已连接 GitHub Gist 云同步（点击管理或立即同步）") : "配置 iPhone ↔ 电脑跨设备云同步"}
           >
             <Cloud size={14} className={gistBusy ? "spin" : ""}/>
             <span>{gistBusy ? "云同步中…" : gistConfig ? "云同步已连" : "云同步"}</span>
@@ -821,357 +809,224 @@ export default function VocabularyDesk() {
         <div className="v-stage" key={view}>
         {view==="review" && <>
           {!activeSession && <>
-            {/* Persistent Checkpoint Resume Banner */}
-            {ready && savedSession && (
-              <section className="v-panel resume-banner">
-                <div className="resume-info">
-                  <span className="resume-badge"><Play size={13}/>上次背诵未完成</span>
-                  <strong>{savedSession.deckLabel}</strong>
-                  <span className="v-muted">
-                    第 {savedSession.position + 1} / {savedSession.queueIds.length} 步 · 已掌握 {savedSession.masteredIds.length} / {savedSession.uniqueIds.length} 词
-                  </span>
-                </div>
-                <div className="resume-actions">
-                  <button type="button" className="v-primary" onClick={resumeSavedSession}>
-                    <Play size={15}/>继续上次背诵
-                  </button>
-                  <button type="button" className="v-secondary rc-mini-btn" onClick={discardSavedSession} title="清除断点">
-                    <X size={14}/>清除进度
-                  </button>
-                </div>
-              </section>
-            )}
+            {/* Single Clean Focus Card — Everything Needed in One Screen */}
+            <section className="home-focus-card">
+              <div className="home-focus-top">
+                <button
+                  type="button"
+                  className="home-deck-trigger"
+                  onClick={() => setDeckModalOpen(true)}
+                  title="点击切换词本（阅读生词/短语、词书 Day 1–4、GPT 词单）"
+                >
+                  <BookOpen size={15}/>
+                  <span>{activeDeck?.title || "今日全部待复习"}</span>
+                  <i className="home-deck-count">{ready ? `${activeDeckDue.length} 待背` : "…"}</i>
+                  <ChevronDown size={15}/>
+                </button>
 
-            <section className="v-hero">
-              <div className="v-hero-copy">
-                <span className="v-hero-tag"><Sparkles size={13}/> 六级智能背词台 · 自动播音 & 断点续背</span>
-                <h1>选好词本，直接开背。</h1>
-                <p>已同步词书每日词单、Google Drive 六级阅读生词与短语，以及 ChatGPT 每日推送词条。</p>
-                <div className="v-actions">
-                  <button
-                    className="hero-primary"
-                    disabled={!ready || !nextBatchSize}
-                    onClick={() => savedSession ? resumeSavedSession() : (activeDeck && launchSession(activeDeck, selectedMode))}
-                  >
-                    {savedSession ? `继续上次进度 (${savedSession.position + 1}/${savedSession.queueIds.length})` : `立即开背 · ${nextBatchSize} 词`}
-                  </button>
-                  <button className="hero-secondary" onClick={() => setGptModalOpen(true)}>
-                    <Upload size={15}/>导入 GPT 每日词单
-                  </button>
-                </div>
-              </div>
-              <div className="v-hero-render" aria-hidden="true">
-                <div className="v-hero-glow"/>
-                <div className="v-hero-card-float one"><i/><i/><i/></div>
-                <div className="v-hero-card-float two"><i/><i/></div>
-                <img src={heroArt} alt="" width="500" height="500" fetchPriority="high"/>
-              </div>
-            </section>
-
-            <dl className="v-metrics">{[
-              {label:"今日待复习", value:duePlayableCount, icon:Clock3, tone:"purple"},
-              {label:"今日已背词", value:reviewed, icon:Check, tone:"mint"},
-              {label:"每日词书词条", value:cards.filter(c=>c.entry.fields.batch).length, icon:Layers3, tone:"blue"},
-              {label:"阅读积累 & GPT", value:readingAllCards.length + gptDailyCards.length, icon:Star, tone:"orange"},
-            ].map(({label,value,icon:Icon,tone}) => (
-              <div className="v-panel" key={label}>
-                <span className={"metric-icon "+tone}><Icon size={20}/></span>
-                <dd>{ready ? value : "—"}</dd>
-                <dt>{label}</dt>
-              </div>
-            ))}</dl>
-
-            {/* Step 1: Visual Deck Picker */}
-            <section className="v-panel v-module deck-studio" id="practice-modes">
-              <div className="v-heading">
-                <div>
-                  <h2>第一步：选择要背的词本</h2>
-                  <p className="v-muted">点选任意词本卡片即可切换，已完整接入 Google Drive 阅读生词、短语与 GPT 每日词单。</p>
-                </div>
-                <div className="v-actions">
-                  <button type="button" className="v-secondary rc-mini-btn" onClick={() => setGptModalOpen(true)}>
-                    <Upload size={14}/>粘贴导入 GPT 词单
-                  </button>
-                  <a className="v-secondary rc-mini-btn" href={readingDocUrl} target="_blank" rel="noreferrer">
-                    阅读文档源 <ExternalLink size={13}/>
-                  </a>
-                </div>
+                <button
+                  type="button"
+                  className="home-subtle-btn"
+                  onClick={() => setGptModalOpen(true)}
+                >
+                  <Upload size={14}/>导入 GPT 词单
+                </button>
               </div>
 
-              {(["smart", "reading", "book"] as const).map(sec => {
-                const secTitle = sec === "smart"
-                  ? "今日推荐 & GPT 每日词单"
-                  : sec === "reading"
-                    ? `六级阅读积累库（已同步 ${readingAllCards.length} 条）`
-                    : "每日词书词表（Day 1 – Day 4）";
-                const list = decks.filter(d => d.section === sec);
-                return (
-                  <div className="deck-group" key={sec}>
-                    <div className="deck-group-label">{secTitle}</div>
-                    <div className={"deck-grid " + sec}>
-                      {list.map(deck => {
-                        const selected = deck.id === selectedDeckId;
-                        const total = deck.cards.length;
-                        const learned = deck.cards.filter(c => Boolean(c.entry.reviewed)).length;
-                        const dueCnt = deck.cards.filter(c => !c.entry.due || c.entry.due <= today).length;
-                        const pct = total ? Math.round((learned / total) * 100) : 0;
+              <div className="home-focus-main">
+                <div className="home-focus-copy">
+                  {ready && savedSession ? (
+                    <div className="home-resume-chip">
+                      <Play size={12}/>
+                      <span>上次背到：{savedSession.deckLabel}（第 {savedSession.position + 1}/{savedSession.queueIds.length} 步）</span>
+                      <button type="button" aria-label="清除上次断点" onClick={discardSavedSession}><X size={12}/></button>
+                    </div>
+                  ) : (
+                    <span className="v-hero-tag"><Sparkles size={13}/> 自动播音 · 断点续背 · 错词重练</span>
+                  )}
+
+                  <h1>
+                    {ready
+                      ? activeDeckDue.length > 0
+                        ? <>今日待背 <em>{activeDeckDue.length}</em> 词</>
+                        : <>本词本今日已清空</>
+                      : "正在准备今日词库…"}
+                  </h1>
+                  <p className="home-focus-sub">
+                    今日已背 <b>{reviewed}</b> 词 · 全库已巩固 <b>{masteredCount}</b> 词 · 共收录 <b>{cards.length}</b> 条（含阅读生词/短语 {readingAllCards.length} 条）
+                  </p>
+
+                  {/* Compact Inline Mode & Batch Options */}
+                  <div className="home-inline-bar">
+                    <div className="home-mode-seg" role="tablist" aria-label="背诵方式">
+                      {modes.map(({ id, title, icon: Icon }) => {
+                        const ok = (activeDeck?.cards ?? []).some(c => eligible(c, id));
                         return (
                           <button
-                            key={deck.id}
+                            key={id}
                             type="button"
-                            className={`deck-card tone-${deck.tone} ${selected ? "selected" : ""}`}
-                            aria-pressed={selected}
-                            onClick={() => {
-                              setSelectedDeckId(deck.id);
-                              setPeekCardId("");
-                              if (deck.dayNum && deck.dayNum > activeDay) unlockBatchDay(deck.dayNum);
-                              if (!deck.cards.some(c => eligible(c, selectedMode)) && deck.cards.some(c => eligible(c, "recognize"))) {
-                                setSelectedMode("recognize");
-                              }
-                            }}
+                            role="tab"
+                            aria-selected={selectedMode === id}
+                            disabled={!ready || !ok}
+                            className={selectedMode === id ? "active" : ""}
+                            onClick={() => setSelectedMode(id)}
                           >
-                            <div className="deck-card-top">
-                              <strong>{deck.title}</strong>
-                              <span className={"deck-due-pill " + (dueCnt ? "" : "done")}>
-                                {dueCnt ? `待背 ${dueCnt}` : "今日已清"}
-                              </span>
-                            </div>
-                            <p className="deck-card-sub">{deck.subtitle}</p>
-                            <div className="deck-card-foot">
-                              <span className="deck-bar"><i style={{ width: `${pct}%` }}/></span>
-                              <small>{learned}/{total} 已学</small>
-                            </div>
+                            <Icon size={14}/>{title}
                           </button>
                         );
                       })}
                     </div>
-                  </div>
-                );
-              })}
 
-              {/* Step 2: Mode + Group Size + Auto-Play + Launch Button */}
-              <div className="launch-dock">
-                <div className="launch-head">
-                  <h2>第二步：选背诵方式 & 本组设置</h2>
-                  <span className="v-tag sky">当前词本：{activeDeck?.title}</span>
+                    <div className="home-mini-toggles">
+                      <select
+                        aria-label="每组词数"
+                        className="home-mini-select"
+                        value={studyPrefs.groupSize}
+                        onChange={e => updateStudyPrefs({ ...studyPrefs, groupSize: Number(e.target.value) })}
+                      >
+                        {groupSizeOptions.map(opt => (
+                          <option key={opt.value} value={opt.value}>每组 {opt.label}</option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        className={"home-mini-pill " + (audioPrefs.autoPlay ? "on" : "")}
+                        onClick={() => updateAudioPrefs({ ...audioPrefs, autoPlay: !audioPrefs.autoPlay })}
+                        title="切换自动播放英文发音"
+                      >
+                        {audioPrefs.autoPlay ? <Volume2 size={14}/> : <VolumeX size={14}/>}
+                        <span>{audioPrefs.autoPlay ? "自动播音" : "静音"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={"home-mini-pill " + (studyPrefs.shuffle ? "on" : "")}
+                        onClick={() => updateStudyPrefs({ ...studyPrefs, shuffle: !studyPrefs.shuffle })}
+                        title="切换顺序或随机打乱"
+                      >
+                        <Shuffle size={13}/>
+                        <span>{studyPrefs.shuffle ? "随机" : "顺序"}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Primary Action CTA */}
+                  <div className="home-cta-row">
+                    {ready && savedSession ? (
+                      <>
+                        <button type="button" className="home-cta-primary" onClick={resumeSavedSession}>
+                          <Play size={18}/>继续上次背诵 ({savedSession.position + 1}/{savedSession.queueIds.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="hero-secondary"
+                          disabled={!activeDeckPlayable.length}
+                          onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                        >
+                          重开一组 ({nextBatchSize} 词)
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="home-cta-primary"
+                        disabled={!ready || !activeDeckPlayable.length}
+                        onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                      >
+                        <Play size={18}/>
+                        {activeDeckDue.length
+                          ? `开始背诵 · 本组 ${nextBatchSize} 词`
+                          : activeDeckPlayable.length
+                            ? `继续自由复习 · ${nextBatchSize} 词`
+                            : "当前词本暂无可练词条"}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="launch-modes">
-                  {modes.map(({ id, title, badge, detail }) => {
-                    const playableCnt = (activeDeck?.cards ?? []).filter(c => eligible(c, id)).length;
-                    const active = selectedMode === id;
+                <div className="v-hero-render home-render" aria-hidden="true">
+                  <div className="v-hero-glow"/>
+                  <div className="v-hero-card-float one"><i/><i/><i/></div>
+                  <div className="v-hero-card-float two"><i/><i/></div>
+                  <img src={heroArt} alt="" width="500" height="500" fetchPriority="high"/>
+                </div>
+              </div>
+            </section>
+
+            {/* Compact 3-Card Bento Row — Clean, Scannable, Zero Clutter */}
+            <div className="home-bento-row">
+              <section className="v-panel home-bento-card">
+                <div className="home-bento-head">
+                  <h2>今日进度</h2>
+                  <span className="v-tag mint">连胜 {streak} 天</span>
+                </div>
+                <div className="home-mini-bars">
+                  <div className="v-goal-row">
+                    <div className="v-goal-head"><span>今日复习完成度</span><span>{todayGoalPct}%</span></div>
+                    <div className="v-track"><div className="v-fill purple" style={{width:`${todayGoalPct}%`}}/></div>
+                  </div>
+                  <div className="v-goal-row">
+                    <div className="v-goal-head"><span>听力复盘掌握度</span><span>{listenGoalPct}%</span></div>
+                    <div className="v-track"><div className="v-fill mint" style={{width:`${listenGoalPct}%`}}/></div>
+                  </div>
+                  <div className="v-goal-row">
+                    <div className="v-goal-head"><span>开放词库巩固率</span><span>{vocabGoalPct}%</span></div>
+                    <div className="v-track"><div className="v-fill peach" style={{width:`${vocabGoalPct}%`}}/></div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="v-panel home-bento-card">
+                <div className="home-bento-head">
+                  <h2>常用词本直达</h2>
+                  <button type="button" className="home-link-btn" onClick={() => setDeckModalOpen(true)}>
+                    全部 {decks.length} 个词本 →
+                  </button>
+                </div>
+                <div className="home-quick-list">
+                  {quickDecks.map(deck => {
+                    const dueCnt = deck.cards.filter(c => !c.entry.due || c.entry.due <= today).length;
                     return (
                       <button
-                        key={id}
+                        key={deck.id}
                         type="button"
-                        className={`launch-mode-card v-mode-${id} ${active ? "selected" : ""}`}
-                        aria-pressed={active}
-                        disabled={!ready || !playableCnt}
-                        onClick={() => setSelectedMode(id)}
+                        className={"home-quick-item " + (deck.id === selectedDeckId ? "active" : "")}
+                        onClick={() => selectDeck(deck, true)}
                       >
-                        <img src={modeArt[id]} alt="" width="88" height="88"/>
-                        <div className="launch-mode-copy">
-                          <div className="launch-mode-title">
-                            <strong>{title}</strong>
-                            <span>{badge}</span>
-                          </div>
-                          <p>{detail}</p>
-                          <small>{playableCnt ? `可练 ${playableCnt} 条` : "本词本含长句/改写，建议用看词识义"}</small>
+                        <div>
+                          <strong>{deck.title}</strong>
+                          <small>{deck.cards.length} 条 · 待背 {dueCnt}</small>
                         </div>
+                        <span className="home-quick-go"><Play size={13}/></span>
                       </button>
                     );
                   })}
                 </div>
+              </section>
 
-                <div className="launch-controls">
-                  <div className="launch-ctrl-group">
-                    <span className="v-dock-label">每组词数</span>
-                    <div className="launch-seg">
-                      {groupSizeOptions.map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          className={studyPrefs.groupSize === opt.value ? "active" : ""}
-                          onClick={() => updateStudyPrefs({ ...studyPrefs, groupSize: opt.value })}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="launch-ctrl-group">
-                    <button
-                      type="button"
-                      className={"v-focus-pill " + (studyPrefs.shuffle ? "active" : "")}
-                      onClick={() => updateStudyPrefs({ ...studyPrefs, shuffle: !studyPrefs.shuffle })}
-                    >
-                      <Shuffle size={13}/>{studyPrefs.shuffle ? "随机顺序 开" : "顺序背诵"}
-                    </button>
-                    <button
-                      type="button"
-                      className={"v-focus-pill " + (audioPrefs.autoPlay ? "active" : "")}
-                      onClick={() => updateAudioPrefs({ ...audioPrefs, autoPlay: !audioPrefs.autoPlay })}
-                    >
-                      {audioPrefs.autoPlay ? <Volume2 size={13}/> : <VolumeX size={13}/>}
-                      {audioPrefs.autoPlay ? "自动播音 开" : "自动播音 关"}
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="v-primary launch-start-btn"
-                    disabled={!ready || !activeDeckPlayable.length}
-                    onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
-                  >
-                    <Play size={17}/>
-                    {activeDeckDue.length
-                      ? `开始背诵 · 本组 ${nextBatchSize} 词`
-                      : activeDeckPlayable.length
-                        ? `继续下一组自由复习 · ${nextBatchSize} 词`
-                        : "该模式暂无词条"}
+              <section className="v-panel home-bento-card">
+                <div className="home-bento-head">
+                  <h2>云同步与备份</h2>
+                  <span className={"v-tag " + (gistConfig ? "mint" : "sky")}>
+                    {gistConfig ? "Gist 已连" : "未配置"}
+                  </span>
+                </div>
+                <p className="v-muted home-sync-desc">
+                  {gistConfig
+                    ? `上次云同步：${formatSyncClock(gistConfig.lastSyncAt) || "刚刚"}。每次背词自动双向同步至 iPhone 与电脑。`
+                    : "配置 GitHub Gist 后，iPhone 与电脑自动双向同步进度；也可随时导出 JSON 备份。"}
+                </p>
+                <div className="home-sync-actions">
+                  <button type="button" className="v-secondary rc-mini-btn" onClick={() => setSyncModalOpen(true)}>
+                    <Settings2 size={14}/>同步与备份设置
+                  </button>
+                  <button type="button" className="v-secondary rc-mini-btn" onClick={() => navigate("library")}>
+                    词句库 ({cards.length})
                   </button>
                 </div>
-
-                {/* Compact word preview strip for the chosen deck */}
-                {previewCandidates.length > 0 && (
-                  <div className="v-pool-preview compact">
-                    <div className="v-peek-chips">
-                      <span className="v-dock-label">本组预览（点词试听）：</span>
-                      {previewCandidates.map(card => {
-                        const selected = peekCard?.entry.id === card.entry.id;
-                        return (
-                          <button
-                            key={card.entry.id}
-                            type="button"
-                            className={"v-peek-chip " + (selected ? "active" : "")}
-                            onClick={() => { setPeekCardId(card.entry.id); speak(card); }}
-                          >
-                            <Volume2 size={12}/>
-                            <span>{card.term.length > 24 ? card.term.slice(0, 23) + "…" : card.term}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {peekCard && (
-                      <div className="v-peek-gloss">
-                        <div className="v-peek-gloss-text">
-                          <strong>{peekCard.term}</strong>
-                          {peekCard.pronunciation && <span className="v-peek-ipa">{peekCard.pronunciation}</span>}
-                          <span className="v-peek-meaning">{peekCard.meaning.replace(/\n+/g, " · ")}</span>
-                        </div>
-                        <div className="v-peek-gloss-meta">
-                          <span className="v-tag">{peekCard.category}</span>
-                          <span className="v-tag sky">{peekCard.source}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* Horizontal 3-bar progress overview */}
-            <section className="v-panel v-module progress-strip-card">
-              <div className="progress-strip-grid">
-                <div className="v-goal-row">
-                  <div className="v-goal-head"><span>今日复习完成度</span><span>{todayGoalPct}%</span></div>
-                  <div className="v-track"><div className="v-fill purple" style={{width:`${todayGoalPct}%`}}/></div>
-                </div>
-                <div className="v-goal-row">
-                  <div className="v-goal-head"><span>听力复盘掌握度</span><span>{listenGoalPct}%</span></div>
-                  <div className="v-track"><div className="v-fill mint" style={{width:`${listenGoalPct}%`}}/></div>
-                </div>
-                <div className="v-goal-row">
-                  <div className="v-goal-head"><span>开放词库巩固率</span><span>{vocabGoalPct}%</span></div>
-                  <div className="v-track"><div className="v-fill peach" style={{width:`${vocabGoalPct}%`}}/></div>
-                </div>
-              </div>
-            </section>
-
-            <section className="v-panel v-module v-local-backup" id="cloud-sync-card">
-              <div className="v-sync-grid">
-                <div className="v-sync-box">
-                  <div className="v-sync-head">
-                    <h2>跨设备云同步（iPhone ↔ 电脑）</h2>
-                    <span className={"v-tag " + (gistConfig ? "mint" : "sky")}>
-                      {gistConfig ? "GitHub Gist 已连接" : "未连接"}
-                    </span>
-                  </div>
-                  <p className="v-muted">
-                    使用你自己的私有 GitHub Gist 自动双向同步复习进度、打卡记录与倒计时。只需在电脑和 iPhone 各粘贴一次同一枚 Token，自动识别同一份私有进度。
-                  </p>
-                  {gistConfig ? (
-                    <div className="v-gist-connected">
-                      <div className="v-gist-meta">
-                        <span>私有 Gist：<code>{gistConfig.gistId.slice(0, 8)}…{gistConfig.gistId.slice(-4)}</code></span>
-                        {gistConfig.lastSyncAt && <span>上次同步：{formatSyncClock(gistConfig.lastSyncAt)}</span>}
-                      </div>
-                      <div className="v-actions">
-                        <button type="button" className="v-primary rc-mini-btn" disabled={gistBusy || busy} onClick={() => void runGistSync()}>
-                          <RefreshCw size={14} className={gistBusy ? "spin" : ""}/>{gistBusy ? "双向同步中…" : "立即双向同步"}
-                        </button>
-                        <button type="button" className="v-secondary rc-mini-btn" disabled={gistBusy} onClick={disconnectGist}>
-                          <CloudOff size={14}/>断开连接
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <form
-                      className="v-gist-form"
-                      onSubmit={e => {
-                        e.preventDefault();
-                        if (gistToken.trim()) void runGistSync({ token: gistToken.trim(), gistId: gistIdInput.trim() });
-                      }}
-                    >
-                      <div className="v-gist-inputs">
-                        <input
-                          type="password"
-                          autoComplete="off"
-                          aria-label="GitHub Token"
-                          placeholder="粘贴 GitHub Token（仅需勾选 gist 权限）"
-                          value={gistToken}
-                          onChange={e => setGistToken(e.target.value)}
-                        />
-                        <input
-                          type="text"
-                          autoComplete="off"
-                          aria-label="可选 Gist ID"
-                          placeholder="Gist ID（留空自动查找或新建）"
-                          value={gistIdInput}
-                          onChange={e => setGistIdInput(e.target.value)}
-                        />
-                      </div>
-                      <div className="v-actions">
-                        <button className="v-primary rc-mini-btn" disabled={!gistToken.trim() || gistBusy}>
-                          <Cloud size={15}/>{gistBusy ? "连接并同步中…" : "连接并同步"}
-                        </button>
-                        <a className="v-secondary rc-mini-btn" href={githubTokenCreateUrl} target="_blank" rel="noreferrer">
-                          一键生成 gist Token <ExternalLink size={13}/>
-                        </a>
-                      </div>
-                    </form>
-                  )}
-                  {gistMessage && <p className="v-muted v-sync-status ok" role="status">{gistMessage}</p>}
-                  {gistError && <p className="v-muted v-sync-status err" role="alert">{gistError}</p>}
-                </div>
-
-                <div className="v-sync-box">
-                  <h2>本机备份与 Google Drive</h2>
-                  <p className="v-muted">支持随时导出 JSON 文件迁移进度；电脑端本地运行时还会自动同步 Google Drive 词书与阅读积累库。</p>
-                  <div className="v-actions" style={{marginTop:12}}>
-                    <label className="v-secondary">导入备份
-                      <input type="file" accept=".json,application/json" onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";void importBackup(file);}}/>
-                    </label>
-                    <button className="v-secondary" disabled={!ready||busy} onClick={exportBackup}>导出备份</button>
-                    {driveEnabled && <button className="v-secondary" disabled={driveBusy||busy} onClick={()=>void syncDrive()}>{driveBusy?"正在读取 Google Drive…":"立即同步 Google Drive"}</button>}
-                  </div>
-                  <p className="v-muted" style={{marginTop:10}} role="status">
-                    {driveEnabled ? driveMessage || "页面打开时同步 Google Drive，随后每 10 分钟检查一次。" : "在 iPhone Safari 点「分享 → 添加到主屏幕」即可像原生 App 一样全屏使用。"}
-                  </p>
-                </div>
-              </div>
-            </section>
+              </section>
+            </div>
           </>}
 
           {activeSession && (
@@ -1339,6 +1194,40 @@ export default function VocabularyDesk() {
         </div>
       </main>
     </div>
+    <DeckPickerModal
+      open={deckModalOpen}
+      decks={decks}
+      selectedDeckId={selectedDeckId}
+      readingTotal={readingAllCards.length}
+      today={today}
+      onClose={() => setDeckModalOpen(false)}
+      onSelect={selectDeck}
+      onOpenGptImport={() => setGptModalOpen(true)}
+    />
+    <SyncSettingsModal
+      open={syncModalOpen}
+      ready={ready}
+      busy={busy}
+      driveEnabled={driveEnabled}
+      driveBusy={driveBusy}
+      driveMessage={driveMessage}
+      gistConfig={gistConfig}
+      gistToken={gistToken}
+      gistIdInput={gistIdInput}
+      gistBusy={gistBusy}
+      gistMessage={gistMessage}
+      gistError={gistError}
+      onClose={() => setSyncModalOpen(false)}
+      onTokenChange={setGistToken}
+      onGistIdChange={setGistIdInput}
+      onConnectGist={() => void runGistSync({ token: gistToken.trim(), gistId: gistIdInput.trim() })}
+      onSyncGist={() => void runGistSync()}
+      onDisconnectGist={disconnectGist}
+      onSyncDrive={() => void syncDrive()}
+      onExportBackup={exportBackup}
+      onImportBackup={file => void importBackup(file)}
+      formatClock={formatSyncClock}
+    />
     <GptImportModal
       open={gptModalOpen}
       busy={busy}
