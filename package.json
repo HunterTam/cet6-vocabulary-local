@@ -1,0 +1,16 @@
+{
+  "name": "cet6-vocabulary-local",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.13.0"},
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && node scripts/single-file.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "test": "node scripts/check-local.mjs && node scripts/check-drive.mjs"
+  },
+  "dependencies": {"lucide-react": "1.31.0", "react": "19.2.6", "react-dom": "19.2.6"},
+  "devDependencies": {"@types/react": "19.2.14", "@types/react-dom": "19.2.3", "typescript": "5.9.3", "vite": "8.0.13"}
+}
