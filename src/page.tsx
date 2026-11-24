@@ -97,7 +97,6 @@ export default function VocabularyDesk() {
   const [peekCardId, setPeekCardId] = useState("");
   const [limit, setLimit] = useState(40);
   const [curveCard, setCurveCard] = useState("");
-  const [curveQuery, setCurveQuery] = useState("");
   const [includeAll, setIncludeAll] = useState(false);
   const [query, setQuery] = useState("");
   const [session, setSession] = useState<Session>();
@@ -248,7 +247,6 @@ export default function VocabularyDesk() {
     [card.term, card.meaning, card.example].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
   const active = session?.cards[session.position];
   const finished = Boolean(session && !active);
-  const selectedCurve = cards.find(card=>card.entry.id===curveCard);
 
   function unlockBatchDay(dayNum: number) {
     setUnlockedPref(dayNum);
@@ -263,7 +261,17 @@ export default function VocabularyDesk() {
 
   function navigate(next: View) {
     setView(next); setDraft(undefined); setEditing(undefined); setSession(undefined);
-    setSource(""); setCategory(""); setBatch(""); setQuery(""); setLimit(40); setCurveCard(""); setCurveQuery(""); setNotice(""); resetPrompt();
+    setSource(""); setCategory(""); setBatch(""); setQuery(""); setLimit(40); setCurveCard(""); setNotice(""); resetPrompt();
+  }
+
+  function startRescue(rescueCards: Card[], mode: Mode) {
+    const playable = rescueCards.filter(card => eligible(card, mode));
+    if (!playable.length) return;
+    setView("review");
+    resetPrompt();
+    setNotice(`已启动临界遗忘抢救模式（共 ${playable.length} 条）。`);
+    setSession({ mode, cards: playable, position: 0, correct: 0 });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function openBatch(day:string) { navigate("review"); setBatch(day); }
@@ -553,6 +561,7 @@ export default function VocabularyDesk() {
         {!ready && !error && <p role="status" className="v-muted">正在读取积累库…</p>}
         {notice && <p className="v-notice" role="status">{notice}</p>}
 
+        <div className="v-stage" key={view}>
         {view==="review" && <>
           {!session && <>
             <section className="v-hero">
@@ -827,7 +836,7 @@ export default function VocabularyDesk() {
                 </div>
               </form>}
 
-              {result && <div className="v-feedback" aria-live="polite">
+              {result && <div className={"v-feedback v-feedback-"+result} aria-live="polite">
                 <div className="v-heading" style={{marginBottom:0}}>
                   <span className={"v-feedback-badge "+result}>
                     {result==="right" ? "✓ 拼写正确" : result==="wrong" ? "再复习一次" : "对照释义"}
@@ -918,24 +927,24 @@ export default function VocabularyDesk() {
         </>}
 
         {view==="curve" && <>
-          <div className="v-heading"><div><h1>复习曲线</h1><p className="v-muted">第一次答对隔 1 天复习。到期答对后延长间隔，答错次日再练。</p></div></div>
-          <section className="v-panel v-module v-curve-panel">
-            <div className="v-heading">
-              <h2>{selectedCurve ? selectedCurve.term+" · 复习记录" : "艾宾浩斯遗忘曲线示意"}</h2>
-              <div className="v-actions">
-                <input aria-label="搜索单词曲线" placeholder="搜索单词或释义" value={curveQuery} onChange={e=>setCurveQuery(e.target.value)}/>
-                <label className="v-filter">查看单词
-                  <select value={curveCard} onChange={e=>setCurveCard(e.target.value)}>
-                    <option value="">通用示意</option>
-                    {cards.filter(card=>card.entry.id===curveCard || (card.term+" "+card.meaning).toLowerCase().includes(curveQuery.trim().toLowerCase())).map(card=>(
-                      <option key={card.entry.id} value={card.entry.id}>{card.term}{card.entry.fields.page?" · "+card.entry.fields.page+" 页":""}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+          <div className="v-heading">
+            <div>
+              <h1>记忆曲线与遗忘预警</h1>
+              <p className="v-muted">追踪每条词句的实时记忆保持率、预测未来 7 天复习负荷，直接抢救即将遗忘的词条。</p>
             </div>
-            <ReviewCurve key={curveCard} entry={selectedCurve?.entry}/>
-          </section>
+          </div>
+          {ready && (
+            <ReviewCurve
+              cards={cards}
+              selectedId={curveCard}
+              onSelect={setCurveCard}
+              onSpeak={speak}
+              onRate={(entry, passed) => persist(entry, passed ? "pass" : "again")}
+              onStartRescue={startRescue}
+              busy={busy}
+              daysUntilExam={daysUntilExam}
+            />
+          )}
         </>}
 
         {view==="trend" && <>
@@ -1001,6 +1010,7 @@ export default function VocabularyDesk() {
             {ready && !groups.length && <p className="v-muted">暂无阅读练习记录。导入备份后可查看真题正确率与错题解析。</p>}
           </section>
         </>}
+        </div>
       </main>
     </div>
   </div>;
