@@ -2,7 +2,7 @@ import { dailyVocabulary } from "./daily-vocabulary";
 import { dateKey, nextDate, seed, type Entry } from "./data";
 import { nextReview } from "./review-schedule";
 import { listeningSeed } from "./listening-data";
-import { parseReadingDoc, readingVocabulary } from "./reading-vocabulary";
+import { parseReadingDoc, readingVocabulary, extraStudyVocabulary, type ParsedImportCard } from "./reading-vocabulary";
 
 const storageKey = "cet6-vocabulary-local-v1";
 const driveKey = "cet6-vocabulary-drive-v1";
@@ -69,6 +69,11 @@ async function localBase() {
     return {id,kind,fields,source:{key,fields},version:0,history:[],stage:0,due:"",reviewed:""};
   }));
   for (const note of notes) base.set(note.id,note);
+  const extras = await Promise.all(extraStudyVocabulary().map(async ({id:fixedId,key,kind,fields}):Promise<Entry>=>{
+    const id = fixedId ?? await sourceId(key!);
+    return {id,kind,fields,...(key ? {source:{key,fields}} : {}),version:0,history:[],stage:0,due:"",reviewed:""};
+  }));
+  for (const extra of extras) base.set(extra.id,extra);
   return base;
 }
 const loadBase = () => basePromise ??= localBase();
@@ -109,9 +114,9 @@ export async function mergeDriveFeed(text:string) {
   for (const line of lines) {
     if (!line.trim()) continue;
     const row = JSON.parse(line) as {key?:unknown;fields?:Entry["fields"]} | null;
-    if (!row || typeof row.key!=="string" || !/^conversation:c269190020:(?:word:|spelling:|daily:\d+:)[a-z0-9][a-z0-9 '’.-]{0,140}$/i.test(row.key) ||
+    if (!row || typeof row.key!=="string" || !/^conversation:[a-z0-9_-]+:(?:word:|spelling:|phrase:|daily:\d+:)[^\r\n]{1,180}$/i.test(row.key) ||
         !validFields(row.fields) || !row.fields?.title?.trim() || !row.fields.body?.trim() ||
-        !["词书复习","英语对话"].includes(row.fields.origin)) throw new Error("同步文件包含无效词条。");
+        !["词书复习","英语对话","阅读积累库","阅读分析","手动积累"].includes(row.fields.origin)) throw new Error("同步文件包含无效词条。");
     const spelling = {"dilemma":"62","subsequent":"64","subscribe":"61"} as Record<string,string>;
     const title = row.fields.title.toLowerCase().trim();
     const key = spelling[title]===row.fields.page ? "conversation:c269190020:spelling:"+title : row.key;
@@ -223,6 +228,53 @@ export function importRecords(text:string) {
 
 export function exportLocalDelta(): Entry[] {
   return readLocal();
+}
+
+export async function importGptNotes(items: ParsedImportCard[], batchTag?: string): Promise<{ added: number; updated: number }> {
+  const existingAll = await resolvedRecords();
+  const local = new Map(readLocal().map(entry => [entry.id, entry]));
+  let added = 0;
+  let updated = 0;
+  for (const item of items) {
+    const title = item.title.trim();
+    const body = item.body.trim();
+    if (!title || !body) continue;
+    const key = `gpt-import:${item.origin}:${title.toLowerCase()}`;
+    const id = await sourceId(key);
+    const fields: Entry["fields"] = {
+      title,
+      body,
+      example: item.example.trim(),
+      category: item.category || "单词",
+      origin: item.origin || "英语对话",
+      ...(item.batch ? { batch: item.batch } : {}),
+      ...(item.page ? { page: item.page } : {}),
+      ...(batchTag ? { tags: batchTag } : {}),
+    };
+    const prev = local.get(id) ?? existingAll.get(id);
+    if (prev) {
+      const mergedFields = { ...prev.fields, ...fields };
+      if (JSON.stringify(mergedFields) !== JSON.stringify(prev.fields)) {
+        local.set(id, { ...prev, fields: mergedFields, version: prev.version + 1 });
+        updated++;
+      }
+    } else {
+      local.set(id, {
+        id,
+        kind: "note",
+        fields,
+        source: { key, fields },
+        version: 1,
+        history: [],
+        stage: 0,
+        due: "",
+        reviewed: "",
+      });
+      added++;
+    }
+  }
+  if (added || updated) writeLocal(local.values());
+  return { added, updated };
 }
 
 function mergeLogs(a?: Entry["reviewLog"], b?: Entry["reviewLog"]) {

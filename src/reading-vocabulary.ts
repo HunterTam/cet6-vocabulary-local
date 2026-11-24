@@ -1,9 +1,10 @@
-import type { Fields } from "./data";
+import type { Entry, Fields } from "./data";
 
 export const readingDocId = "1im9IlE05N7Gc0pkwDAFHpGUCxTIs2ZQt8dkZ4vvaVcQ";
 export const readingDocUrl = `https://docs.google.com/document/d/${readingDocId}/edit`;
 
 export type ReadingVocabItem = { key: string; kind: "note"; fields: Fields };
+export type SeedNoteEntry = { id?: string; key?: string; kind: "note"; fields: Fields };
 
 function splitTermAndPhonetic(raw: string): { title: string; phonetic: string } {
   const cleaned = raw.trim();
@@ -323,3 +324,285 @@ const readingDocSnapshot = `
 export function readingVocabulary(): ReadingVocabItem[] {
   return parseReadingDoc(readingDocSnapshot);
 }
+
+// Latest GPT dialogue & reading-analysis notes synced from Google Drive ("CET6 Vocabulary Sync") and review history.
+export function extraStudyVocabulary(): SeedNoteEntry[] {
+  return [
+    {
+      key: "conversation:c269190020:word:tumble",
+      kind: "note",
+      fields: {
+        title: "tumble",
+        category: "单词",
+        origin: "英语对话",
+        body: "/ˈtʌmbəl/\n跌倒；翻滚；暴跌；倒塌",
+        example: "The child tumbled.",
+        sourceUrl: "https://chatgpt.com/share/6b04e1ef-6754-83ea-a616-0619e5708750",
+      },
+    },
+    {
+      key: "conversation:c269190020:word:tutor",
+      kind: "note",
+      fields: {
+        title: "tutor",
+        category: "单词",
+        origin: "英语对话",
+        body: "/ˈtjuːtə(r)/\n家庭教师；私人教师；大学导师；辅导",
+        example: "",
+        sourceUrl: "https://chatgpt.com/share/6b04e1ef-6754-83ea-a616-0619e5708750",
+      },
+    },
+    {
+      key: "conversation:c270556750:word:take on",
+      kind: "note",
+      fields: {
+        title: "take on",
+        category: "固定搭配",
+        origin: "英语对话",
+        body: "呈现出；具有（某种特征）。也可表示承担（职责）、雇用或与……较量。",
+        example: "Solidarity takes on a complex and multifaceted character.\n团结呈现出一种复杂而多面的特征。",
+      },
+    },
+    {
+      key: "conversation:c270556750:2025-12-2:p1:note:hindrance",
+      kind: "note",
+      fields: {
+        title: "hindrance",
+        category: "单词",
+        origin: "阅读分析",
+        body: "/ˈhɪndrəns/\n阻碍；妨碍。常用搭配：a hindrance to sth.。",
+        example: "individuals who see society as a hindrance to their freedom",
+      },
+    },
+    {
+      key: "conversation:c270556750:2025-12-2:p1:note:collective-consciousness",
+      kind: "note",
+      fields: {
+        title: "collective consciousness",
+        category: "固定搭配",
+        origin: "阅读分析",
+        body: "集体意识；群体共同的信念、认同和价值观。",
+        example: "Does the group you belong to have a strong collective consciousness or shared beliefs?",
+      },
+    },
+    {
+      key: "conversation:c270556750:2025-12-2:p1:note:complex-multifaceted",
+      kind: "note",
+      fields: {
+        title: "complex and multifaceted ↔ involves many aspects with great complexity",
+        category: "同义改写",
+        origin: "阅读分析",
+        body: "complex（复杂的）+ multifaceted（多方面的）可改写为 involves many aspects with great complexity。该改写直接对应第 47 题正确选项 B。",
+        example: "solidarity takes on a complex and multifaceted character.",
+      },
+    },
+    {
+      key: "conversation:c270556750:2025-12-2:p1:note:modifier-reassembly",
+      kind: "note",
+      fields: {
+        title: "长句修饰语不可随意重新拼接",
+        category: "可迁移规律",
+        origin: "阅读分析",
+        body: "先找主干，再确认 living in、working within 等分词结构修饰的名词。干扰项常把原文修饰语重新拼成时间、因果或动作关系；关键词都出现，也不代表逻辑一致。",
+        example: "individuals living in a fast-changing environment ≠ solidarity brings individuals together as environment changes",
+      },
+    },
+    {
+      id: "cet6-2025-12-1-note0",
+      kind: "note",
+      fields: {
+        title: "could have done … if … had done",
+        category: "关键句",
+        origin: "阅读分析",
+        body: "过去反事实。could have increased 表示原本有可能增加，if … had been addressed 给出当时未满足的条件。",
+        example: "第 52 题。黑人学生本来有机会获得更高的终身收入。",
+        article: "cet6-2025-12-1-p2",
+        question: "initial-52",
+      },
+    },
+    {
+      id: "cet6-2025-12-1-note1",
+      kind: "note",
+      fields: {
+        title: "more divided than ever before → increasingly split",
+        category: "同义改写",
+        origin: "阅读分析",
+        body: "divided 与 split 都表示分裂，more … than ever before 表示分裂程度超过以往。",
+        example: "第 54 题。根据调查，77% 的受访者认为美国的分裂程度超过以往。",
+        article: "cet6-2025-12-1-p2",
+        question: "initial-54",
+      },
+    },
+    {
+      id: "cet6-2025-12-1-note2",
+      kind: "note",
+      fields: {
+        title: "have yet to do",
+        category: "固定搭配",
+        origin: "阅读分析",
+        body: "尚未做某事。",
+        example: "the roads we have yet to travel。与第 51 题 still has a long way to go 呼应。",
+        article: "cet6-2025-12-1-p2",
+        question: "cet6-2025-12-1-q51",
+      },
+    },
+    {
+      id: "cet6-2025-12-1-note3",
+      kind: "note",
+      fields: {
+        title: "bridge the differences",
+        category: "固定搭配",
+        origin: "阅读分析",
+        body: "弥合分歧。bridge 在这里作动词，表示缩小或弥合差距。",
+        example: "bridge the differences that divide us · 第 53 题",
+        article: "cet6-2025-12-1-p2",
+        question: "cet6-2025-12-1-q53",
+      },
+    },
+  ];
+}
+
+export type ParsedImportCard = {
+  title: string;
+  body: string;
+  example: string;
+  category: string;
+  origin: string;
+  batch?: string;
+  page?: string;
+};
+
+// Flexible parser for daily ChatGPT vocabulary messages (JSONL CET6_SYNC_V1, markdown bullets, numbered lists, or reading-doc lines).
+export function parseGptWordList(rawText: string, defaultOrigin = "英语对话"): ParsedImportCard[] {
+  const cleaned = rawText.replace(/^\uFEFF/, "").trim();
+  if (!cleaned) return [];
+
+  // 1) Try reading-doc structure if section headers exist.
+  if (/0?1[｜|].*(?:词汇|VOCABULARY)|0?2[｜|].*(?:短语|PHRASES)|0?3[｜|].*(?:语句|SENTENCES)/i.test(cleaned)) {
+    const parsedDoc = parseReadingDoc(cleaned);
+    if (parsedDoc.length) {
+      return parsedDoc.map(item => ({
+        title: item.fields.title || "",
+        body: item.fields.body || "",
+        example: item.fields.example || "",
+        category: item.fields.category || "单词",
+        origin: "阅读积累库",
+      }));
+    }
+  }
+
+  const lines = cleaned.split(/\r?\n/);
+  const items: ParsedImportCard[] = [];
+  let current: ParsedImportCard | undefined;
+
+  const pushCurrent = () => {
+    if (current && current.title.trim() && current.body.trim()) {
+      items.push({
+        ...current,
+        title: current.title.trim(),
+        body: current.body.trim(),
+        example: current.example.trim(),
+      });
+    }
+    current = undefined;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line === "CET6_SYNC_V1" || /^```/.test(line) || /^[━─═-]{3,}$/.test(line)) continue;
+
+    // 2) JSONL line from CET6_SYNC_V1
+    if (line.startsWith("{") && line.endsWith("}")) {
+      try {
+        const obj = JSON.parse(line) as { fields?: Fields };
+        if (obj?.fields?.title && obj.fields.body) {
+          pushCurrent();
+          items.push({
+            title: obj.fields.title.trim(),
+            body: obj.fields.body.trim(),
+            example: (obj.fields.example || "").trim(),
+            category: obj.fields.category || "单词",
+            origin: obj.fields.origin || defaultOrigin,
+            batch: obj.fields.batch,
+            page: obj.fields.page,
+          });
+          continue;
+        }
+      } catch {
+        // Fall through to plain-text parsing
+      }
+    }
+
+    // Continuation example/translation line for previous card
+    if (current && /^(?:例句?|译文?|记|Example|e\.g\.)\s*[｜|:：]/i.test(line)) {
+      const cleanedEx = line.replace(/^(?:例句?|Example|e\.g\.)\s*[｜|:：]\s*/i, "").trim();
+      current.example = current.example ? `${current.example}\n${cleanedEx}` : cleanedEx;
+      continue;
+    }
+
+    // Markdown / numbered / bullet word entry:
+    // e.g. "1. **autonomy** /ɔːˈtɑːnəmi/ n. 自主权" or "- take on：呈现出" or "profound | /prəˈfaʊnd/ | 深刻的"
+    const stripped = line
+      .replace(/^(?:\d+[.)、]\s*|[•·▪\-*]\s*)/, "")
+      .replace(/\*\*/g, "")
+      .replace(/`/g, "")
+      .trim();
+
+    // Pipe / fullwidth bar / colon / dash delimiter
+    const sepMatch = stripped.match(/^([A-Za-z][A-Za-z0-9'’\s/.-]{0,80}?)(?:\s+(\/[^\s/][^/]*\/))?\s*(?:[｜|:：]|—|–|\s+-\s+|\t+)\s*(.+)$/);
+    if (sepMatch) {
+      pushCurrent();
+      const title = sepMatch[1].trim();
+      const ipa = (sepMatch[2] || "").trim();
+      const rest = sepMatch[3].trim();
+      const restParts = rest.split(/\s*(?:[｜|]|例句?[｜|:：])\s*/);
+      let meaning = restParts[0] || rest;
+      let example = restParts.slice(1).join("\n");
+      let finalIpa = ipa;
+      if (!finalIpa && /^\/[^/]+\/$/.test(meaning)) {
+        finalIpa = meaning;
+        meaning = restParts[1] || "";
+        example = restParts.slice(2).join("\n");
+      }
+      const isPhrase = /\s/.test(title) && !title.includes("/");
+      current = {
+        title,
+        body: finalIpa ? `${finalIpa}\n${meaning}` : meaning,
+        example,
+        category: /[↔≠→]/.test(title) ? "同义改写" : isPhrase ? "固定搭配" : "单词",
+        origin: defaultOrigin,
+      };
+      continue;
+    }
+
+    // Space-separated: "word /ipa/ 中文释义" or "word n. 中文释义"
+    const spaceMatch = stripped.match(/^([A-Za-z][A-Za-z'’.-]{1,40})\s+(\/[^/]+\/)\s+(.+)$/)
+      || stripped.match(/^([A-Za-z][A-Za-z'’.-]{1,40})\s+((?:n|v|vt|vi|adj|adv|prep|conj|pron|num|art)\.\s*.+|[\u4e00-\u9fa5].+)$/i);
+    if (spaceMatch) {
+      pushCurrent();
+      const hasIpa = spaceMatch.length === 4;
+      const title = spaceMatch[1].trim();
+      const ipa = hasIpa ? spaceMatch[2].trim() : "";
+      const meaning = (hasIpa ? spaceMatch[3] : spaceMatch[2]).trim();
+      current = {
+        title,
+        body: ipa ? `${ipa}\n${meaning}` : meaning,
+        example: "",
+        category: "单词",
+        origin: defaultOrigin,
+      };
+      continue;
+    }
+
+    // Plain English example sentence on next line after a word
+    if (current && /^[A-Z][A-Za-z0-9\s,'’"“”.;:?!()-]{12,}[.!?]$/.test(stripped)) {
+      current.example = current.example ? `${current.example}\n${stripped}` : stripped;
+    }
+  }
+
+  pushCurrent();
+  return items;
+}
+
+export type _UnusedEntryImport = Entry;
+

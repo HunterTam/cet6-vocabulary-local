@@ -1,22 +1,42 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Clock3, Cloud, CloudOff, ExternalLink, Eye, Flame, Headphones, Layers3, LibraryBig, PencilLine, Plus, RefreshCw, Search, Sparkles, Star, Volume2, Waves } from "lucide-react";
+import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Clock3, Cloud, CloudOff, ExternalLink, Eye, Flame, Headphones, Layers3, LibraryBig, PencilLine, Play, Plus, RefreshCw, Search, Shuffle, Sparkles, Star, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
 import { dateKey, firstAnswer, type Entry } from "./data";
-import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, spellingMatches, studyStreakDays, vocabulary, type Card, type Mode } from "./vocabulary";
+import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, studyStreakDays, vocabulary, type Card, type Mode } from "./vocabulary";
 import { dailyBatches } from "./daily-vocabulary";
-import { readingDocUrl } from "./reading-vocabulary";
+import { readingDocUrl, type ParsedImportCard } from "./reading-vocabulary";
 import { ReviewCurve } from "./review-curve";
-import { importRecords, listRecords, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
+import { importGptNotes, importRecords, listRecords, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
 import { clearGistConfig, githubTokenCreateUrl, readGistConfig, syncWithGist, type GistConfig } from "./cloud-sync";
 import { ListeningReview } from "./listening-review";
+import { FlashcardStudio } from "./flashcard-studio";
+import { GptImportModal } from "./gpt-import-modal";
+import {
+  buildStudySession,
+  readAudioPrefs,
+  readSavedSession,
+  readStudyPrefs,
+  saveAudioPrefs,
+  saveStudyPrefs,
+  speakEnglish,
+  stopSpeaking,
+  writeSavedSession,
+  type AudioPrefs,
+  type SavedSession,
+  type StudyPrefs,
+} from "./study-session";
 import heroArt from "./images/model-0.webp?inline";
 import spellingArt from "./images/model-1.webp?inline";
 import recognizeArt from "./images/model-2.webp?inline";
 import recallArt from "./images/model-3.webp?inline";
 import "./vocabulary.css";
 
-const modeArt = [spellingArt, recognizeArt, recallArt];
+const modeArt: Record<Mode, string> = {
+  recognize: recognizeArt,
+  spelling: spellingArt,
+  recall: recallArt,
+};
 const batchUnlockKey = "cet6-unlocked-batch-v1";
 const examDateKey = "cet6-exam-date-v1";
 const defaultExamDate = "2026-12-12";
@@ -26,9 +46,16 @@ const examPresets = [
 ] as const;
 
 const modes = [
-  {id:"spelling", title:"单词拼写", detail:"听发音或看字母提示，写出完整英文。", icon:AudioLines},
-  {id:"recognize", title:"看词识义", detail:"先回想文中的意思，再翻卡核对。", icon:Eye},
-  {id:"recall", title:"看意思写词", detail:"根据中文释义，回忆原来的英文。", icon:PencilLine},
+  {id:"recognize", title:"看词识义", badge:"推荐", detail:"自动播音，先想意思再翻卡，不认识自动重练。", icon:Eye},
+  {id:"spelling", title:"听音拼写", badge:"强记忆", detail:"听发音写出完整英文，拼错逐字母标红。", icon:AudioLines},
+  {id:"recall", title:"看义写词", badge:"考前冲刺", detail:"看中文释义回忆英文，训练主动提取。", icon:PencilLine},
+] as const;
+
+const groupSizeOptions = [
+  {value:10, label:"10 词"},
+  {value:20, label:"20 词"},
+  {value:30, label:"30 词"},
+  {value:0, label:"全部"},
 ] as const;
 
 const tabs = [
@@ -40,7 +67,15 @@ const tabs = [
 ] as const;
 
 type View = (typeof tabs)[number]["id"];
-type Session = {mode:Mode; cards:Card[]; position:number; correct:number};
+type DeckDef = {
+  id: string;
+  section: "smart" | "reading" | "book";
+  title: string;
+  subtitle: string;
+  tone: "purple" | "mint" | "orange" | "blue";
+  cards: Card[];
+  dayNum?: number;
+};
 const categories = ["单词","固定搭配","熟词生义","同义改写","关键句"];
 const sources = ["阅读积累库","阅读分析","词书复习","英语对话","手动积累"];
 const blank = {title:"", body:"", example:"", category:"单词"};
@@ -102,16 +137,17 @@ export default function VocabularyDesk() {
   const [countdownOpen, setCountdownOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const countdownRef = useRef<HTMLDivElement>(null);
+  const [selectedDeckId, setSelectedDeckId] = useState("today-mix");
+  const [selectedMode, setSelectedMode] = useState<Mode>("recognize");
+  const [audioPrefs, setAudioPrefs] = useState<AudioPrefs>(readAudioPrefs);
+  const [studyPrefs, setStudyPrefs] = useState<StudyPrefs>(readStudyPrefs);
+  const [activeSession, setActiveSession] = useState<SavedSession | null>(null);
+  const [savedSession, setSavedSession] = useState<SavedSession | null>(readSavedSession);
+  const [gptModalOpen, setGptModalOpen] = useState(false);
   const [peekCardId, setPeekCardId] = useState("");
   const [limit, setLimit] = useState(40);
   const [curveCard, setCurveCard] = useState("");
-  const [includeAll, setIncludeAll] = useState(false);
   const [query, setQuery] = useState("");
-  const [session, setSession] = useState<Session>();
-  const [input, setInput] = useState("");
-  const [result, setResult] = useState<"right"|"wrong"|"shown">();
-  const [audioMessage, setAudioMessage] = useState("");
-  const [letterHint, setLetterHint] = useState(false);
   const [draft, setDraft] = useState<typeof blank>();
   const [editing, setEditing] = useState<Entry>();
   const [notice, setNotice] = useState("");
@@ -313,80 +349,250 @@ export default function VocabularyDesk() {
   const streak = useMemo(() => studyStreakDays(entries, today), [entries, today]);
 
   const confirmed = (card:Card) => Number(card.entry.fields.batch || 0) <= activeDay;
-  const due = cards.filter(card => (includeAll || confirmed(card)) && (!card.entry.due || card.entry.due <= today));
+  const due = cards.filter(card => confirmed(card) && (!card.entry.due || card.entry.due <= today));
   const reviewed = cards.filter(card => card.entry.reviewed === today).length;
   const masteredCount = cards.filter(card => Boolean(card.entry.reviewed) && card.entry.due > today).length;
   const listeningEntries = useMemo(() => entries.filter(entry => entry.kind === "listening"), [entries]);
   const listeningMastered = listeningEntries.filter(entry => Boolean(entry.reviewed) && entry.due > today).length;
   const listeningDue = listeningEntries.filter(entry => !entry.due || entry.due <= today).length;
 
+  const cardsById = useMemo(() => new Map(cards.map(c => [c.entry.id, c])), [cards]);
+
   const pool = cards.filter(card => !source || card.source === source);
   const filteredPool = pool.filter(card => (!category || card.category === category) && (!batch || card.entry.fields.batch === batch));
-  const practicePool = view === "review" && !batch && !includeAll ? filteredPool.filter(confirmed) : filteredPool;
   const catalog = filteredPool.filter(card =>
     [card.term, card.meaning, card.example].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
-  const active = session?.cards[session.position];
-  const finished = Boolean(session && !active);
 
-  function unlockBatchDay(dayNum: number) {
-    setUnlockedPref(dayNum);
-    try { localStorage.setItem(batchUnlockKey, String(dayNum)); } catch {}
-    setNotice(`已解锁至第 ${dayNum} 天词表，对应词条已加入日常复习池。`);
+  const readingAllCards = useMemo(
+    () => cards.filter(c => c.source === "阅读积累库" || c.source === "阅读分析"),
+    [cards],
+  );
+  const gptDailyCards = useMemo(
+    () => cards.filter(c => c.source === "英语对话" || c.source === "手动积累"),
+    [cards],
+  );
+
+  const decks = useMemo<DeckDef[]>(() => {
+    const readingWords = readingAllCards.filter(c => c.category === "单词" || c.category === "熟词生义");
+    const readingPhrases = readingAllCards.filter(c => c.category === "固定搭配");
+    const readingMeta = readingAllCards.filter(c => c.category === "同义改写" || c.category === "关键句");
+    const bookAll = cards.filter(c => Boolean(c.entry.fields.batch));
+    const openAll = cards.filter(confirmed);
+
+    return [
+      {
+        id: "today-mix",
+        section: "smart",
+        title: "今日全部待复习",
+        subtitle: `开放词书 1–${activeDay} 天 + 阅读积累 + GPT 词单`,
+        tone: "purple",
+        cards: openAll,
+      },
+      {
+        id: "gpt-daily",
+        section: "smart",
+        title: "GPT 每日推送 & 对话",
+        subtitle: "ChatGPT 同步词条与一键粘贴的每日词单",
+        tone: "orange",
+        cards: gptDailyCards,
+      },
+      {
+        id: "reading-word",
+        section: "reading",
+        title: "阅读生词",
+        subtitle: "六级阅读积累库高频生词",
+        tone: "mint",
+        cards: readingWords,
+      },
+      {
+        id: "reading-phrase",
+        section: "reading",
+        title: "阅读短语 & 搭配",
+        subtitle: "真题高频短语、固定搭配",
+        tone: "mint",
+        cards: readingPhrases,
+      },
+      {
+        id: "reading-para",
+        section: "reading",
+        title: "同义改写 & 关键句",
+        subtitle: "选项替换规律与难句精析",
+        tone: "blue",
+        cards: readingMeta,
+      },
+      {
+        id: "reading-all",
+        section: "reading",
+        title: "阅读积累全部合集",
+        subtitle: "Drive 阅读文档全部词汇短语语句",
+        tone: "purple",
+        cards: readingAllCards,
+      },
+      ...visibleBatches.map(group => ({
+        id: `day-${group.day}`,
+        section: "book" as const,
+        title: `第 ${group.day} 天词书`,
+        subtitle: `第 ${group.first}–${group.last} 页 · 词书核心词`,
+        tone: "blue" as const,
+        cards: cards.filter(c => c.entry.fields.batch === group.day),
+        dayNum: Number(group.day),
+      })),
+      {
+        id: "book-all",
+        section: "book",
+        title: "全部词书合集",
+        subtitle: "Day 1–4 全部词书词条",
+        tone: "purple",
+        cards: bookAll,
+      },
+    ];
+  }, [cards, readingAllCards, gptDailyCards, visibleBatches, activeDay]);
+
+  const activeDeck = decks.find(d => d.id === selectedDeckId) ?? decks[0];
+
+  function updateAudioPrefs(next: AudioPrefs) {
+    setAudioPrefs(next);
+    saveAudioPrefs(next);
   }
 
-  function resetPrompt() {
-    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
-    setInput(""); setResult(undefined); setAudioMessage(""); setLetterHint(false); setError("");
+  function updateStudyPrefs(next: StudyPrefs) {
+    setStudyPrefs(next);
+    saveStudyPrefs(next);
+  }
+
+  function updateActiveSession(next: SavedSession | null) {
+    setActiveSession(next);
+    writeSavedSession(next);
+    setSavedSession(next && next.position < next.queueIds.length ? next : null);
+  }
+
+  function unlockBatchDay(dayNum: number) {
+    if (dayNum <= activeDay) return;
+    setUnlockedPref(dayNum);
+    try { localStorage.setItem(batchUnlockKey, String(dayNum)); } catch {}
+    setNotice(`已自动开启第 ${dayNum} 天词书，并纳入日常复习池。`);
   }
 
   function navigate(next: View) {
-    setView(next); setDraft(undefined); setEditing(undefined); setSession(undefined);
-    setSource(""); setCategory(""); setBatch(""); setQuery(""); setLimit(40); setCurveCard(""); setNotice(""); resetPrompt();
+    stopSpeaking();
+    setView(next); setDraft(undefined); setEditing(undefined); setActiveSession(null);
+    setSource(""); setCategory(""); setBatch(""); setQuery(""); setLimit(40); setCurveCard(""); setNotice(""); setError("");
   }
 
-  function startRescue(rescueCards: Card[], mode: Mode) {
-    const playable = rescueCards.filter(card => eligible(card, mode));
-    if (!playable.length) return;
+  function launchSession(deck: DeckDef, mode: Mode, forceAll = false) {
+    if (deck.dayNum && deck.dayNum > activeDay) unlockBatchDay(deck.dayNum);
+    const built = buildStudySession({
+      deckId: deck.id,
+      deckLabel: deck.title,
+      pool: deck.cards,
+      mode,
+      groupSize: studyPrefs.groupSize,
+      shuffle: studyPrefs.shuffle,
+      today,
+      forceAll,
+    });
+    if (!built) {
+      setNotice("当前词本在该模式下暂无可练词条，试试切换「看词识义」模式。");
+      return;
+    }
+    // Synchronously trigger first word pronunciation inside the click gesture for iPhone Safari auto-play!
+    const firstCard = cardsById.get(built.queueIds[0]);
+    if (firstCard && audioPrefs.autoPlay && mode !== "recall") {
+      speakEnglish(firstCard.term, { rate: audioPrefs.rate, dedupeKey: `card:0:${firstCard.entry.id}` });
+    }
+    setNotice("");
     setView("review");
-    resetPrompt();
-    setNotice(`已启动临界遗忘抢救模式（共 ${playable.length} 条）。`);
-    setSession({ mode, cards: playable, position: 0, correct: 0 });
+    setActiveSession(built);
+    setSavedSession(built);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function openBatch(day:string) { navigate("review"); setBatch(day); }
-
-  function start(mode: Mode, includeFuture: boolean) {
-    const choices = practicePool.filter(card => eligible(card, mode));
-    const ordered = [...choices].sort((a,b) =>
-      Number(b.entry.reviewLog?.at(-1)?.passed === false) - Number(a.entry.reviewLog?.at(-1)?.passed === false)
-      || Number(Boolean(b.entry.fields.previousSpelling)) - Number(Boolean(a.entry.fields.previousSpelling))
-      || Number(Boolean(b.entry.due)) - Number(Boolean(a.entry.due))
-      || a.entry.due.localeCompare(b.entry.due));
-    const selected = ordered.filter(card => includeFuture || !card.entry.due || card.entry.due <= today);
-    if (!selected.length) return;
-    resetPrompt(); setNotice(""); setSession({mode, cards:selected, position:0, correct:0});
-  }
-
-  function speakText(english: string, fallbackHint = false) {
-    if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
-      setAudioMessage("当前浏览器无法播放发音。");
-      if (fallbackHint) setLetterHint(true);
+  function resumeSavedSession() {
+    if (!savedSession) return;
+    const validQueue = savedSession.queueIds.filter(id => cardsById.has(id));
+    if (!validQueue.length || savedSession.position >= validQueue.length) {
+      writeSavedSession(null);
+      setSavedSession(null);
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(english.split("/")[0].trim());
-    utterance.lang = "en-US"; utterance.rate = .86;
-    utterance.onerror = event => {
-      if (event.error !== "canceled" && event.error !== "interrupted") {
-        setAudioMessage("当前浏览器无法播放发音。");
-        if (fallbackHint) setLetterHint(true);
-      }
+    const currentCard = cardsById.get(savedSession.queueIds[savedSession.position]);
+    if (currentCard && audioPrefs.autoPlay && savedSession.mode !== "recall") {
+      speakEnglish(currentCard.term, {
+        rate: audioPrefs.rate,
+        dedupeKey: `card:${savedSession.position}:${currentCard.entry.id}`,
+      });
+    }
+    setView("review");
+    setActiveSession(savedSession);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function discardSavedSession() {
+    writeSavedSession(null);
+    setSavedSession(null);
+  }
+
+  function startCustomCards(customCards: Card[], deckLabel: string, mode: Mode) {
+    const playable = customCards.filter(card => eligible(card, mode));
+    if (!playable.length) return;
+    const queueIds = playable.map(c => c.entry.id);
+    const built: SavedSession = {
+      deckId: "custom",
+      deckLabel,
+      mode,
+      queueIds,
+      position: 0,
+      uniqueIds: [...queueIds],
+      masteredIds: [],
+      wrongIds: [],
+      requeuedIds: [],
+      groupSize: queueIds.length,
+      shuffle: false,
+      updatedAt: new Date().toISOString(),
     };
-    setAudioMessage(""); window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance);
+    writeSavedSession(built);
+    const firstCard = playable[0];
+    if (firstCard && audioPrefs.autoPlay && mode !== "recall") {
+      speakEnglish(firstCard.term, { rate: audioPrefs.rate, dedupeKey: `card:0:${firstCard.entry.id}` });
+    }
+    setView("review");
+    setActiveSession(built);
+    setSavedSession(built);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function startRescue(rescueCards: Card[], mode: Mode) {
+    setNotice(`已启动临界遗忘抢救模式（共 ${rescueCards.length} 条）。`);
+    startCustomCards(rescueCards, "遗忘预警抢救", mode);
   }
 
   function speak(card: Card) {
-    speakText(card.term, true);
+    speakEnglish(card.term, { rate: audioPrefs.rate });
+  }
+
+  async function handleGptImport(items: ParsedImportCard[], startNow: boolean, batchTag: string) {
+    setBusy(true);
+    setError("");
+    try {
+      const { added, updated } = await importGptNotes(items, batchTag);
+      const refreshed = await listRecords();
+      setEntries(refreshed);
+      scheduleGistSync();
+      setGptModalOpen(false);
+      setNotice(`已导入 GPT 词单：新增 ${added} 条${updated ? `，更新 ${updated} 条` : ""}。`);
+      if (startNow) {
+        const refreshedCards = vocabulary(refreshed);
+        const importedTitles = new Set(items.map(i => i.title.trim().toLowerCase()));
+        const targetCards = refreshedCards.filter(c => importedTitles.has(c.term.trim().toLowerCase()));
+        if (targetCards.length) {
+          startCustomCards(targetCards, batchTag, "recognize");
+        }
+      }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "导入失败，请检查词单格式。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function persist(entry: Entry, action: "pass"|"again"|"save", fields?: Record<string,string>) {
@@ -401,39 +607,6 @@ export default function VocabularyDesk() {
       return false;
     } finally { setBusy(false); }
   }
-
-  async function rate(correct: boolean) {
-    if (!active || !session || busy) return;
-    if (await persist(active.entry, correct ? "pass" : "again")) {
-      setSession({...session, position:session.position+1, correct:session.correct+Number(correct)});
-      resetPrompt();
-    }
-  }
-
-  // Keyboard shortcuts during active flashcard session
-  useEffect(() => {
-    if (!active || !session || busy) return;
-    function onKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const inField = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-      if (inField || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === "r" || event.key === "R") {
-        event.preventDefault();
-        speak(active!);
-      } else if (session!.mode === "recognize" && !result && event.key === " ") {
-        event.preventDefault();
-        setResult("shown");
-      } else if (result === "shown" && event.key === "1") {
-        event.preventDefault();
-        void rate(false);
-      } else if (result === "shown" && event.key === "2") {
-        event.preventDefault();
-        void rate(true);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  });
 
   async function saveCard(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -484,38 +657,24 @@ export default function VocabularyDesk() {
   const examTone = daysUntilExam <= 0 ? "today" : daysUntilExam <= 14 ? "urgent" : "calm";
   const dailyPaceNeed = daysUntilExam > 0 ? Math.max(1, Math.ceil(duePlayableCount / daysUntilExam)) : duePlayableCount;
 
-  const openScopeCards = useMemo(() => (includeAll ? cards : cards.filter(confirmed)), [cards, includeAll, activeDay]);
-  const readingCards = useMemo(() => cards.filter(c => c.source === "阅读积累库"), [cards]);
-  const readingWordsCount = readingCards.filter(c => c.category === "单词").length;
-  const readingPhrasesCount = readingCards.filter(c => c.category === "固定搭配").length;
-  const readingParaphraseCount = readingCards.filter(c => c.category === "同义改写").length;
-  const readingSentenceCount = readingCards.filter(c => c.category === "关键句").length;
-  const bookOpenCount = openScopeCards.filter(c => c.source === "词书复习").length;
-
-  const poolBookCount = practicePool.filter(c => Boolean(c.entry.fields.batch)).length;
-  const poolReadingWordPhraseCount = practicePool.filter(c => !c.entry.fields.batch && (c.category === "单词" || c.category === "固定搭配" || c.category === "熟词生义")).length;
-  const poolReadingMetaCount = Math.max(0, practicePool.length - poolBookCount - poolReadingWordPhraseCount);
+  const activeDeckPlayable = useMemo(
+    () => (activeDeck?.cards ?? []).filter(card => eligible(card, selectedMode)),
+    [activeDeck, selectedMode],
+  );
+  const activeDeckDue = useMemo(
+    () => activeDeckPlayable.filter(card => !card.entry.due || card.entry.due <= today),
+    [activeDeckPlayable, today],
+  );
+  const nextBatchSize = activeDeckDue.length
+    ? (studyPrefs.groupSize > 0 ? Math.min(studyPrefs.groupSize, activeDeckDue.length) : activeDeckDue.length)
+    : (studyPrefs.groupSize > 0 ? Math.min(studyPrefs.groupSize, activeDeckPlayable.length) : activeDeckPlayable.length);
 
   const previewCandidates = useMemo(() => {
-    const sorted = [...practicePool].sort((a, b) =>
-      Number(b.entry.reviewLog?.at(-1)?.passed === false) - Number(a.entry.reviewLog?.at(-1)?.passed === false)
-      || Number(!b.entry.due || b.entry.due <= today) - Number(!a.entry.due || a.entry.due <= today)
-      || Number(b.source === "阅读积累库") - Number(a.source === "阅读积累库")
-      || Number(Boolean(b.entry.fields.previousSpelling)) - Number(Boolean(a.entry.fields.previousSpelling))
-    );
-    return sorted.slice(0, 6);
-  }, [practicePool, today]);
+    const base = activeDeckDue.length ? activeDeckDue : activeDeckPlayable;
+    return base.slice(0, 6);
+  }, [activeDeckDue, activeDeckPlayable]);
 
   const peekCard = previewCandidates.find(c => c.entry.id === peekCardId) ?? previewCandidates[0];
-
-  const focusPresets = [
-    {id:"all", label:"全部范围", count:openScopeCards.length, active:!source && !category && !batch, apply:()=>{setSource("");setCategory("");setBatch("");}},
-    {id:"r-word", label:"阅读生词", count:readingWordsCount, active:source==="阅读积累库" && category==="单词" && !batch, apply:()=>{setSource("阅读积累库");setCategory("单词");setBatch("");}},
-    {id:"r-phrase", label:"阅读短语", count:readingPhrasesCount, active:source==="阅读积累库" && category==="固定搭配" && !batch, apply:()=>{setSource("阅读积累库");setCategory("固定搭配");setBatch("");}},
-    {id:"r-para", label:"同义改写", count:readingParaphraseCount, active:source==="阅读积累库" && category==="同义改写" && !batch, apply:()=>{setSource("阅读积累库");setCategory("同义改写");setBatch("");}},
-    {id:"r-sent", label:"阅读关键句", count:readingSentenceCount, active:source==="阅读积累库" && category==="关键句" && !batch, apply:()=>{setSource("阅读积累库");setCategory("关键句");setBatch("");}},
-    {id:"book", label:"仅看词书", count:bookOpenCount, active:source==="词书复习" && !category && !batch, apply:()=>{setSource("词书复习");setCategory("");setBatch("");}},
-  ];
 
   const navCounts: Partial<Record<View, string>> = ready ? {
     review: String(duePlayableCount),
@@ -661,18 +820,43 @@ export default function VocabularyDesk() {
 
         <div className="v-stage" key={view}>
         {view==="review" && <>
-          {!session && <>
+          {!activeSession && <>
+            {/* Persistent Checkpoint Resume Banner */}
+            {ready && savedSession && (
+              <section className="v-panel resume-banner">
+                <div className="resume-info">
+                  <span className="resume-badge"><Play size={13}/>上次背诵未完成</span>
+                  <strong>{savedSession.deckLabel}</strong>
+                  <span className="v-muted">
+                    第 {savedSession.position + 1} / {savedSession.queueIds.length} 步 · 已掌握 {savedSession.masteredIds.length} / {savedSession.uniqueIds.length} 词
+                  </span>
+                </div>
+                <div className="resume-actions">
+                  <button type="button" className="v-primary" onClick={resumeSavedSession}>
+                    <Play size={15}/>继续上次背诵
+                  </button>
+                  <button type="button" className="v-secondary rc-mini-btn" onClick={discardSavedSession} title="清除断点">
+                    <X size={14}/>清除进度
+                  </button>
+                </div>
+              </section>
+            )}
+
             <section className="v-hero">
               <div className="v-hero-copy">
-                <span className="v-hero-tag"><Sparkles size={13}/> 今日六级智能复盘</span>
-                <h1>准备好开始今天的六级练习了吗？</h1>
-                <p>把每日词书、真题阅读与听力里遇到的生词、短语和关键句轻松练熟。</p>
+                <span className="v-hero-tag"><Sparkles size={13}/> 六级智能背词台 · 自动播音 & 断点续背</span>
+                <h1>选好词本，直接开背。</h1>
+                <p>已同步词书每日词单、Google Drive 六级阅读生词与短语，以及 ChatGPT 每日推送词条。</p>
                 <div className="v-actions">
-                  <button className="hero-primary" onClick={()=>document.getElementById("practice-modes")?.scrollIntoView({behavior:"smooth", block:"start"})}>
-                    继续今日复习
+                  <button
+                    className="hero-primary"
+                    disabled={!ready || !nextBatchSize}
+                    onClick={() => savedSession ? resumeSavedSession() : (activeDeck && launchSession(activeDeck, selectedMode))}
+                  >
+                    {savedSession ? `继续上次进度 (${savedSession.position + 1}/${savedSession.queueIds.length})` : `立即开背 · ${nextBatchSize} 词`}
                   </button>
-                  <button className="hero-secondary" onClick={()=>navigate("library")}>
-                    浏览词句积累
+                  <button className="hero-secondary" onClick={() => setGptModalOpen(true)}>
+                    <Upload size={15}/>导入 GPT 每日词单
                   </button>
                 </div>
               </div>
@@ -686,9 +870,9 @@ export default function VocabularyDesk() {
 
             <dl className="v-metrics">{[
               {label:"今日待复习", value:duePlayableCount, icon:Clock3, tone:"purple"},
-              {label:"今日已复习", value:reviewed, icon:Check, tone:"mint"},
+              {label:"今日已背词", value:reviewed, icon:Check, tone:"mint"},
               {label:"每日词书词条", value:cards.filter(c=>c.entry.fields.batch).length, icon:Layers3, tone:"blue"},
-              {label:"阅读与手动积累", value:cards.filter(c=>!c.entry.fields.batch).length, icon:Star, tone:"orange"},
+              {label:"阅读积累 & GPT", value:readingAllCards.length + gptDailyCards.length, icon:Star, tone:"orange"},
             ].map(({label,value,icon:Icon,tone}) => (
               <div className="v-panel" key={label}>
                 <span className={"metric-icon "+tone}><Icon size={20}/></span>
@@ -697,180 +881,213 @@ export default function VocabularyDesk() {
               </div>
             ))}</dl>
 
-            <div className="v-dashboard">
-              <section className="v-panel v-module" id="practice-modes">
-                <div className="v-heading">
-                  <h2>选择练习方式</h2>
-                  <div className="v-actions">
-                    <label className="v-filter">来源
-                      <select value={source} onChange={e=>{setSource(e.target.value);setBatch("");}}>
-                        <option value="">全部来源</option>
-                        {sources.map(value=><option key={value}>{value}</option>)}
-                      </select>
-                    </label>
-                    <label className="v-filter">类型
-                      <select value={category} onChange={e=>setCategory(e.target.value)}>
-                        <option value="">全部类型</option>
-                        {categories.map(value=><option key={value}>{value}</option>)}
-                      </select>
-                    </label>
-                    {batch && <button className="v-secondary" onClick={()=>setBatch("")}>清除第 {batch} 天筛选</button>}
-                  </div>
+            {/* Step 1: Visual Deck Picker */}
+            <section className="v-panel v-module deck-studio" id="practice-modes">
+              <div className="v-heading">
+                <div>
+                  <h2>第一步：选择要背的词本</h2>
+                  <p className="v-muted">点选任意词本卡片即可切换，已完整接入 Google Drive 阅读生词、短语与 GPT 每日词单。</p>
                 </div>
-
-                <div className="v-scope-bar">
-                  <label className="v-scope">
-                    <input type="checkbox" checked={includeAll} onChange={e=>setIncludeAll(e.target.checked)}/>
-                    复习范围包含全部词表（含未开启天数）
-                  </label>
-                  <span className="v-muted">{batch ? `当前仅练第 ${batch} 天` : includeAll ? "当前范围：全部词表" : `当前范围：第 1–${activeDay} 天及阅读积累`}</span>
+                <div className="v-actions">
+                  <button type="button" className="v-secondary rc-mini-btn" onClick={() => setGptModalOpen(true)}>
+                    <Upload size={14}/>粘贴导入 GPT 词单
+                  </button>
+                  <a className="v-secondary rc-mini-btn" href={readingDocUrl} target="_blank" rel="noreferrer">
+                    阅读文档源 <ExternalLink size={13}/>
+                  </a>
                 </div>
+              </div>
 
-                <div className="v-modes">{modes.map(({id,title,detail},index)=>{
-                  const count = practicePool.filter(card=>eligible(card,id)).length;
-                  const dueCount = practicePool.filter(card=>eligible(card,id) && (!card.entry.due || card.entry.due<=today)).length;
-                  return <section className={"v-mode v-mode-"+id} key={id}>
-                    <div>
-                      <h3>{title}</h3>
-                      <p>{detail}</p>
+              {(["smart", "reading", "book"] as const).map(sec => {
+                const secTitle = sec === "smart"
+                  ? "今日推荐 & GPT 每日词单"
+                  : sec === "reading"
+                    ? `六级阅读积累库（已同步 ${readingAllCards.length} 条）`
+                    : "每日词书词表（Day 1 – Day 4）";
+                const list = decks.filter(d => d.section === sec);
+                return (
+                  <div className="deck-group" key={sec}>
+                    <div className="deck-group-label">{secTitle}</div>
+                    <div className={"deck-grid " + sec}>
+                      {list.map(deck => {
+                        const selected = deck.id === selectedDeckId;
+                        const total = deck.cards.length;
+                        const learned = deck.cards.filter(c => Boolean(c.entry.reviewed)).length;
+                        const dueCnt = deck.cards.filter(c => !c.entry.due || c.entry.due <= today).length;
+                        const pct = total ? Math.round((learned / total) * 100) : 0;
+                        return (
+                          <button
+                            key={deck.id}
+                            type="button"
+                            className={`deck-card tone-${deck.tone} ${selected ? "selected" : ""}`}
+                            aria-pressed={selected}
+                            onClick={() => {
+                              setSelectedDeckId(deck.id);
+                              setPeekCardId("");
+                              if (deck.dayNum && deck.dayNum > activeDay) unlockBatchDay(deck.dayNum);
+                              if (!deck.cards.some(c => eligible(c, selectedMode)) && deck.cards.some(c => eligible(c, "recognize"))) {
+                                setSelectedMode("recognize");
+                              }
+                            }}
+                          >
+                            <div className="deck-card-top">
+                              <strong>{deck.title}</strong>
+                              <span className={"deck-due-pill " + (dueCnt ? "" : "done")}>
+                                {dueCnt ? `待背 ${dueCnt}` : "今日已清"}
+                              </span>
+                            </div>
+                            <p className="deck-card-sub">{deck.subtitle}</p>
+                            <div className="deck-card-foot">
+                              <span className="deck-bar"><i style={{ width: `${pct}%` }}/></span>
+                              <small>{learned}/{total} 已学</small>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <img className="v-mode-render" src={modeArt[index]} alt="" width="500" height="500"/>
-                    <button className="v-mode-btn" disabled={!ready || !count} onClick={()=>start(id,!dueCount)}>
-                      {dueCount ? "开始复习 · "+dueCount+" 条" : count ? "自由复习 · "+count+" 条" : "暂无可练词条"}
-                    </button>
-                  </section>;
-                })}</div>
+                  </div>
+                );
+              })}
 
-                <div className="v-practice-dock">
-                  <div className="v-focus-strip" role="group" aria-label="专项快速筛选">
-                    <span className="v-dock-label">专项聚焦</span>
-                    <div className="v-focus-pills">
-                      {focusPresets.map(preset => (
+              {/* Step 2: Mode + Group Size + Auto-Play + Launch Button */}
+              <div className="launch-dock">
+                <div className="launch-head">
+                  <h2>第二步：选背诵方式 & 本组设置</h2>
+                  <span className="v-tag sky">当前词本：{activeDeck?.title}</span>
+                </div>
+
+                <div className="launch-modes">
+                  {modes.map(({ id, title, badge, detail }) => {
+                    const playableCnt = (activeDeck?.cards ?? []).filter(c => eligible(c, id)).length;
+                    const active = selectedMode === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`launch-mode-card v-mode-${id} ${active ? "selected" : ""}`}
+                        aria-pressed={active}
+                        disabled={!ready || !playableCnt}
+                        onClick={() => setSelectedMode(id)}
+                      >
+                        <img src={modeArt[id]} alt="" width="88" height="88"/>
+                        <div className="launch-mode-copy">
+                          <div className="launch-mode-title">
+                            <strong>{title}</strong>
+                            <span>{badge}</span>
+                          </div>
+                          <p>{detail}</p>
+                          <small>{playableCnt ? `可练 ${playableCnt} 条` : "本词本含长句/改写，建议用看词识义"}</small>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="launch-controls">
+                  <div className="launch-ctrl-group">
+                    <span className="v-dock-label">每组词数</span>
+                    <div className="launch-seg">
+                      {groupSizeOptions.map(opt => (
                         <button
-                          key={preset.id}
+                          key={opt.value}
                           type="button"
-                          className={"v-focus-pill "+(preset.active?"active":"")}
-                          onClick={preset.apply}
+                          className={studyPrefs.groupSize === opt.value ? "active" : ""}
+                          onClick={() => updateStudyPrefs({ ...studyPrefs, groupSize: opt.value })}
                         >
-                          <span>{preset.label}</span>
-                          <i>{ready ? preset.count : "—"}</i>
+                          {opt.label}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  <div className="v-pool-preview">
-                    <div className="v-pool-header">
-                      <div className="v-pool-title">
-                        <strong>当前范围词池构成</strong>
-                        <span className="v-muted">{ready ? `共 ${practicePool.length} 条可练` : "读取中…"}</span>
-                      </div>
-                      <div className="v-pool-legend">
-                        <span><i className="dot book"/>词书 {poolBookCount}</span>
-                        <span><i className="dot reading"/>阅读词组 {poolReadingWordPhraseCount}</span>
-                        <span><i className="dot meta"/>改写/关键句 {poolReadingMetaCount}</span>
-                      </div>
-                    </div>
+                  <div className="launch-ctrl-group">
+                    <button
+                      type="button"
+                      className={"v-focus-pill " + (studyPrefs.shuffle ? "active" : "")}
+                      onClick={() => updateStudyPrefs({ ...studyPrefs, shuffle: !studyPrefs.shuffle })}
+                    >
+                      <Shuffle size={13}/>{studyPrefs.shuffle ? "随机顺序 开" : "顺序背诵"}
+                    </button>
+                    <button
+                      type="button"
+                      className={"v-focus-pill " + (audioPrefs.autoPlay ? "active" : "")}
+                      onClick={() => updateAudioPrefs({ ...audioPrefs, autoPlay: !audioPrefs.autoPlay })}
+                    >
+                      {audioPrefs.autoPlay ? <Volume2 size={13}/> : <VolumeX size={13}/>}
+                      {audioPrefs.autoPlay ? "自动播音 开" : "自动播音 关"}
+                    </button>
+                  </div>
 
-                    <div className="v-composition-bar" aria-hidden="true">
-                      {practicePool.length > 0 && <>
-                        {poolBookCount > 0 && <span className="seg book" style={{flexGrow: poolBookCount}}/>}
-                        {poolReadingWordPhraseCount > 0 && <span className="seg reading" style={{flexGrow: poolReadingWordPhraseCount}}/>}
-                        {poolReadingMetaCount > 0 && <span className="seg meta" style={{flexGrow: poolReadingMetaCount}}/>}
-                      </>}
-                    </div>
+                  <button
+                    type="button"
+                    className="v-primary launch-start-btn"
+                    disabled={!ready || !activeDeckPlayable.length}
+                    onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                  >
+                    <Play size={17}/>
+                    {activeDeckDue.length
+                      ? `开始背诵 · 本组 ${nextBatchSize} 词`
+                      : activeDeckPlayable.length
+                        ? `继续下一组自由复习 · ${nextBatchSize} 词`
+                        : "该模式暂无词条"}
+                  </button>
+                </div>
 
-                    {previewCandidates.length > 0 ? (
-                      <div className="v-peek-zone">
-                        <div className="v-peek-chips">
-                          {previewCandidates.map(card => {
-                            const selected = peekCard?.entry.id === card.entry.id;
-                            return (
-                              <button
-                                key={card.entry.id}
-                                type="button"
-                                className={"v-peek-chip "+(selected?"active":"")}
-                                onClick={()=>{setPeekCardId(card.entry.id); speak(card);}}
-                                title="点击试听发音并预览释义"
-                              >
-                                <Volume2 size={12}/>
-                                <span>{card.term.length > 26 ? card.term.slice(0,25)+"…" : card.term}</span>
-                              </button>
-                            );
-                          })}
+                {/* Compact word preview strip for the chosen deck */}
+                {previewCandidates.length > 0 && (
+                  <div className="v-pool-preview compact">
+                    <div className="v-peek-chips">
+                      <span className="v-dock-label">本组预览（点词试听）：</span>
+                      {previewCandidates.map(card => {
+                        const selected = peekCard?.entry.id === card.entry.id;
+                        return (
+                          <button
+                            key={card.entry.id}
+                            type="button"
+                            className={"v-peek-chip " + (selected ? "active" : "")}
+                            onClick={() => { setPeekCardId(card.entry.id); speak(card); }}
+                          >
+                            <Volume2 size={12}/>
+                            <span>{card.term.length > 24 ? card.term.slice(0, 23) + "…" : card.term}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {peekCard && (
+                      <div className="v-peek-gloss">
+                        <div className="v-peek-gloss-text">
+                          <strong>{peekCard.term}</strong>
+                          {peekCard.pronunciation && <span className="v-peek-ipa">{peekCard.pronunciation}</span>}
+                          <span className="v-peek-meaning">{peekCard.meaning.replace(/\n+/g, " · ")}</span>
                         </div>
-                        {peekCard && (
-                          <div className="v-peek-gloss">
-                            <div className="v-peek-gloss-text">
-                              <strong>{peekCard.term}</strong>
-                              {peekCard.pronunciation && <span className="v-peek-ipa">{peekCard.pronunciation}</span>}
-                              <span className="v-peek-meaning">{peekCard.meaning.replace(/\n+/g," · ")}</span>
-                            </div>
-                            <div className="v-peek-gloss-meta">
-                              <span className="v-tag">{peekCard.category}</span>
-                              <span className="v-tag sky">{peekCard.source}</span>
-                            </div>
-                          </div>
-                        )}
+                        <div className="v-peek-gloss-meta">
+                          <span className="v-tag">{peekCard.category}</span>
+                          <span className="v-tag sky">{peekCard.source}</span>
+                        </div>
                       </div>
-                    ) : (
-                      <p className="v-muted" style={{marginTop:8}}>当前筛选条件下暂无词条，点击上方“全部范围”可重置。</p>
                     )}
+                  </div>
+                )}
+              </div>
+            </section>
 
-                    <div className="v-dock-foot">
-                      <span className="v-shortcut-tip">快捷键：R 朗读 · Space 翻卡 · 1 还不熟 · 2 答对了</span>
-                      <a className="v-drive-doc-link" href={readingDocUrl} target="_blank" rel="noreferrer">
-                        Google Drive 阅读积累库 ({ready ? readingCards.length : "—"} 条)<ExternalLink size={12}/>
-                      </a>
-                    </div>
-                  </div>
+            {/* Horizontal 3-bar progress overview */}
+            <section className="v-panel v-module progress-strip-card">
+              <div className="progress-strip-grid">
+                <div className="v-goal-row">
+                  <div className="v-goal-head"><span>今日复习完成度</span><span>{todayGoalPct}%</span></div>
+                  <div className="v-track"><div className="v-fill purple" style={{width:`${todayGoalPct}%`}}/></div>
                 </div>
-              </section>
-
-              <section className="v-panel v-module">
-                <h2>每日进度与词表</h2>
-                <div className="v-progress-bars">
-                  <div className="v-goal-row">
-                    <div className="v-goal-head"><span>今日复习完成度</span><span>{todayGoalPct}%</span></div>
-                    <div className="v-track"><div className="v-fill purple" style={{width:`${todayGoalPct}%`}}/></div>
-                  </div>
-                  <div className="v-goal-row">
-                    <div className="v-goal-head"><span>听力复盘掌握度</span><span>{listenGoalPct}%</span></div>
-                    <div className="v-track"><div className="v-fill mint" style={{width:`${listenGoalPct}%`}}/></div>
-                  </div>
-                  <div className="v-goal-row">
-                    <div className="v-goal-head"><span>开放词表巩固率</span><span>{vocabGoalPct}%</span></div>
-                    <div className="v-track"><div className="v-fill peach" style={{width:`${vocabGoalPct}%`}}/></div>
-                  </div>
+                <div className="v-goal-row">
+                  <div className="v-goal-head"><span>听力复盘掌握度</span><span>{listenGoalPct}%</span></div>
+                  <div className="v-track"><div className="v-fill mint" style={{width:`${listenGoalPct}%`}}/></div>
                 </div>
-
-                <p className="v-muted">当前开放至第 {activeDay} 天 · 点击天数可单独筛选</p>
-                <div className="v-batches">
-                  {visibleBatches.map(group => {
-                    const dayNum = Number(group.day);
-                    const unlocked = dayNum <= activeDay;
-                    return <div className="v-batch-row" key={group.day}>
-                      <button
-                        className={"v-batch "+(batch===group.day?"selected":"")}
-                        aria-pressed={batch===group.day}
-                        onClick={()=>openBatch(group.day)}
-                      >
-                        <span>
-                          <strong>第 {group.day} 天</strong>
-                          <small>第 {group.first}–{group.last} 页 · {group.count} 词{group.learned ? ` · 已学 ${group.learned}` : ""}</small>
-                        </span>
-                        <span className={"v-batch-status "+(unlocked?"":"locked")}>{unlocked ? "可复习" : "待开启"}</span>
-                      </button>
-                      {!unlocked && (
-                        <button type="button" className="v-unlock-btn" onClick={()=>unlockBatchDay(dayNum)} title={`将第 ${group.day} 天纳入日常复习`}>
-                          开启
-                        </button>
-                      )}
-                    </div>;
-                  })}
+                <div className="v-goal-row">
+                  <div className="v-goal-head"><span>开放词库巩固率</span><span>{vocabGoalPct}%</span></div>
+                  <div className="v-track"><div className="v-fill peach" style={{width:`${vocabGoalPct}%`}}/></div>
                 </div>
-              </section>
-            </div>
+              </div>
+            </section>
 
             <section className="v-panel v-module v-local-backup" id="cloud-sync-card">
               <div className="v-sync-grid">
@@ -957,83 +1174,25 @@ export default function VocabularyDesk() {
             </section>
           </>}
 
-          {session && <section className="v-panel v-practice">
-            <div className="v-heading">
-              <h2>{modes.find(mode=>mode.id===session.mode)?.title}</h2>
-              <button className="v-secondary" disabled={busy} onClick={()=>{setSession(undefined);resetPrompt();}}>返回练习选择</button>
-            </div>
-
-            {active && <div className="v-active-card" key={active.entry.id}>
-              <div className="v-session-bar">
-                <span>第 {session.position+1} / {session.cards.length} 条 · {active.category}{active.entry.fields.batch ? ` · 第 ${active.entry.fields.batch} 天` : ""}</span>
-                <span>答对 {session.correct} 条 · 阶段 S{active.entry.stage}</span>
-              </div>
-              <progress aria-label="本轮进度" value={session.position+1} max={session.cards.length}/>
-
-              {session.mode==="spelling" ? <div className="v-prompt">
-                <div className="v-actions">
-                  <button className="v-secondary" type="button" onClick={()=>speak(active)}><Volume2 size={18}/>播放发音 (R)</button>
-                  {!letterHint && <button className="v-secondary" type="button" onClick={()=>setLetterHint(true)}>字母提示</button>}
-                </div>
-                {audioMessage && <p role="status" className="v-muted" style={{marginTop:8}}>{audioMessage}</p>}
-                {letterHint && <div className="v-hint">
-                  <strong>{active.term.split("/")[0].trim().replace(/[a-z]+/gi, word=>word[0]+"·".repeat(word.length-1))}</strong>
-                  <p>{active.meaning}</p>
-                </div>}
-              </div> : <div className={"v-prompt "+(session.mode==="recognize"?"v-english":"")}>
-                {session.mode==="recognize" ? <>
-                  <span>{active.term}</span>
-                  {active.pronunciation && <span className="v-phonetic">{active.pronunciation}</span>}
-                </> : active.meaning}
-              </div>}
-
-              {session.mode==="recognize" && !result && (
-                <div className="v-actions">
-                  <button className="v-primary" onClick={()=>setResult("shown")}>显示释义 (Space)</button>
-                  <button className="v-secondary" type="button" onClick={()=>speak(active)}><Volume2 size={17}/>朗读 (R)</button>
-                </div>
-              )}
-
-              {session.mode!=="recognize" && !result && <form className="v-answer" onSubmit={e=>{e.preventDefault();if(input.trim())setResult(spellingMatches(active.term,input)?"right":"wrong");}}>
-                <label htmlFor="v-answer" className="v-muted">输入完整英文词句</label>
-                <input key={active.entry.id} id="v-answer" autoFocus autoComplete="off" autoCorrect="off" spellCheck={false} value={input} onChange={e=>setInput(e.target.value)}/>
-                <div className="v-actions">
-                  <button className="v-primary" disabled={!input.trim()}>检查答案</button>
-                  <button type="button" className="v-secondary" onClick={()=>setResult("wrong")}>想不起来</button>
-                </div>
-              </form>}
-
-              {result && <div className={"v-feedback v-feedback-"+result} aria-live="polite">
-                <div className="v-heading" style={{marginBottom:0}}>
-                  <span className={"v-feedback-badge "+result}>
-                    {result==="right" ? "✓ 拼写正确" : result==="wrong" ? "再复习一次" : "对照释义"}
-                  </span>
-                  <button type="button" className="v-secondary" onClick={()=>speak(active)}><Volume2 size={16}/>朗读 (R)</button>
-                </div>
-                <p className="v-english">{active.term}{active.pronunciation && <span className="v-phonetic">{active.pronunciation}</span>}</p>
-                <p>{active.meaning}</p>
-                {active.example && <p className="v-example">{active.example}</p>}
-                {input.trim() && result==="wrong" && <p className="v-muted">你的拼写：<strong>{input}</strong></p>}
-                {active.entry.fields.previousSpelling && <p className="v-muted">以前写成过：{active.entry.fields.previousSpelling}</p>}
-                <div className="v-actions" style={{marginTop:4}}>
-                  {result==="shown" ? <>
-                    <button className="v-primary" disabled={busy} onClick={()=>void rate(true)}><Check size={17}/>答对了 (2)</button>
-                    <button className="v-secondary" disabled={busy} onClick={()=>void rate(false)}>还不熟 (1)</button>
-                  </> : (
-                    <button className="v-primary" autoFocus disabled={busy} onClick={()=>void rate(result==="right")}>
-                      {busy ? "保存中…" : "保存并继续"}
-                    </button>
-                  )}
-                </div>
-              </div>}
-            </div>}
-
-            {finished && <div className="v-summary">
-              <h3>本轮练习完成 🎉</h3>
-              <p>共复习了 {session.cards.length} 条，答对 {session.correct} 条（正确率 {Math.round(session.correct / Math.max(1, session.cards.length) * 100)}%）。</p>
-              <button className="v-primary" onClick={()=>setSession(undefined)}>返回继续复习</button>
-            </div>}
-          </section>}
+          {activeSession && (
+            <FlashcardStudio
+              session={activeSession}
+              cardsById={cardsById}
+              busy={busy}
+              audioPrefs={audioPrefs}
+              studyPrefs={studyPrefs}
+              onUpdateAudioPrefs={updateAudioPrefs}
+              onUpdateStudyPrefs={updateStudyPrefs}
+              onSessionChange={updateActiveSession}
+              onRate={(entry, passed) => persist(entry, passed ? "pass" : "again")}
+              onNextGroup={(deckId, mode) => {
+                const target = decks.find(d => d.id === deckId) ?? activeDeck;
+                if (target) launchSession(target, mode);
+              }}
+              onRetryWrong={(wrongCards, label, mode) => startCustomCards(wrongCards, label, mode)}
+              onExit={() => setActiveSession(null)}
+            />
+          )}
         </>}
 
         {view==="listening" && ready && <ListeningReview entries={entries} busy={busy}
@@ -1180,5 +1339,11 @@ export default function VocabularyDesk() {
         </div>
       </main>
     </div>
+    <GptImportModal
+      open={gptModalOpen}
+      busy={busy}
+      onClose={() => setGptModalOpen(false)}
+      onImport={handleGptImport}
+    />
   </div>;
 }

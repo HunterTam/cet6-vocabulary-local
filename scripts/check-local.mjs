@@ -130,4 +130,13 @@ assert.equal(cloudMerged.pulled, 1);
 const afterCloud = (await store.listRecords()).find(entry => entry.id === reviewedQuestion.id);
 assert.equal(afterCloud.version, cloudRemote.version);
 assert.equal(afterCloud.reviewLog.length, cloudRemote.reviewLog.length);
-console.log("Offline bundle, 341 starter words, listening and vocabulary progress, backup merge, cloud sync merge, and Drive deduplication passed.");
+
+// Verify new conversation IDs (e.g. c270556750) and GPT daily word list parsing work cleanly.
+const newConvRow = {key:"conversation:c270556750:word:solidarity",fields:{title:"solidarity",body:"团结；一致",origin:"英语对话",category:"单词"}};
+assert.equal(await store.mergeDriveFeed("CET6_SYNC_V1\n"+JSON.stringify(newConvRow)),1);
+const { parseGptWordList } = await load("reading-vocabulary");
+const gptParsed = parseGptWordList("1. **resilience** /rɪˈzɪliəns/｜韧性；恢复力\n• take on：呈现出；承担");
+assert.equal(gptParsed.length, 2);
+assert.equal(gptParsed[0].title, "resilience");
+assert.equal(gptParsed[1].category, "固定搭配");
+console.log("Offline bundle, 341 starter words, 113+ reading notes, listening and vocabulary progress, backup merge, cloud sync merge, GPT import, and Drive deduplication passed.");
