@@ -110,5 +110,6 @@ function install(server) {
 }
 
 export default defineConfig({
+  base: "./",
   plugins:[{name:"cet6-local-drive-sync",configureServer:install,configurePreviewServer:install}],
 });

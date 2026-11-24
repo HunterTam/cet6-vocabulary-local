@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Clock3, ExternalLink, Eye, Flame, Headphones, Layers3, LibraryBig, PencilLine, Plus, Search, Sparkles, Star, Volume2, Waves } from "lucide-react";
+import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Clock3, Cloud, CloudOff, ExternalLink, Eye, Flame, Headphones, Layers3, LibraryBig, PencilLine, Plus, RefreshCw, Search, Sparkles, Star, Volume2, Waves } from "lucide-react";
 import { dateKey, firstAnswer, type Entry } from "./data";
 import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, spellingMatches, studyStreakDays, vocabulary, type Card, type Mode } from "./vocabulary";
 import { dailyBatches } from "./daily-vocabulary";
 import { readingDocUrl } from "./reading-vocabulary";
 import { ReviewCurve } from "./review-curve";
 import { importRecords, listRecords, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
+import { clearGistConfig, githubTokenCreateUrl, readGistConfig, syncWithGist, type GistConfig } from "./cloud-sync";
 import { ListeningReview } from "./listening-review";
 import heroArt from "./images/model-0.webp?inline";
 import spellingArt from "./images/model-1.webp?inline";
@@ -85,6 +86,13 @@ export default function VocabularyDesk() {
   const [driveMessage, setDriveMessage] = useState("");
   const [driveBusy, setDriveBusy] = useState(false);
   const driveEnabled = ["http://127.0.0.1:5173","http://127.0.0.1:4173"].includes(window.location.origin);
+  const [gistConfig, setGistConfig] = useState<GistConfig | null>(readGistConfig);
+  const [gistToken, setGistToken] = useState("");
+  const [gistIdInput, setGistIdInput] = useState("");
+  const [gistBusy, setGistBusy] = useState(false);
+  const [gistMessage, setGistMessage] = useState("");
+  const [gistError, setGistError] = useState("");
+  const gistTimerRef = useRef<number | undefined>(undefined);
   const [view, setView] = useState<View>("review");
   const [source, setSource] = useState("");
   const [category, setCategory] = useState("");
@@ -161,12 +169,84 @@ export default function VocabularyDesk() {
     }
   }
 
+  function formatSyncClock(iso?: string) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return "";
+    return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", month: "2-digit", day: "2-digit" }).format(d);
+  }
+
+  async function runGistSync(override?: { token: string; gistId?: string }, silent = false) {
+    const activeCfg = override ?? gistConfig;
+    if (!activeCfg?.token) return;
+    setGistBusy(true);
+    if (!silent) setGistError("");
+    try {
+      const res = await syncWithGist(activeCfg, { examDate, unlockedDay: unlockedPref });
+      const nextCfg: GistConfig = { token: activeCfg.token.trim(), gistId: res.gistId, lastSyncAt: res.lastSyncAt };
+      setGistConfig(nextCfg);
+      setGistToken("");
+      setGistIdInput("");
+      if (res.examDate && res.examDate !== examDate) updateExamDate(res.examDate);
+      if (res.unlockedDay && res.unlockedDay > unlockedPref) {
+        setUnlockedPref(res.unlockedDay);
+        try { localStorage.setItem(batchUnlockKey, String(res.unlockedDay)); } catch {}
+      }
+      setEntries(await listRecords());
+      setGistMessage(
+        res.created
+          ? `已创建私有同步 Gist，上传 ${res.totalSynced} 条进度。`
+          : res.pulled
+            ? `双向同步完成：拉取 ${res.pulled} 条新进度（云端共 ${res.totalSynced} 条）。`
+            : `双向同步完成：本机与云端已是最新（共 ${res.totalSynced} 条）。`,
+      );
+      setGistError("");
+    } catch (failure) {
+      const msg = failure instanceof Error ? failure.message : "GitHub Gist 同步失败。";
+      setGistError(msg);
+    } finally {
+      setGistBusy(false);
+    }
+  }
+
+  function scheduleGistSync() {
+    if (!readGistConfig()?.token) return;
+    if (gistTimerRef.current) window.clearTimeout(gistTimerRef.current);
+    gistTimerRef.current = window.setTimeout(() => {
+      const cfg = readGistConfig();
+      if (cfg) void runGistSync(cfg, true);
+    }, 2200);
+  }
+
+  function disconnectGist() {
+    clearGistConfig();
+    setGistConfig(null);
+    setGistMessage("已断开 GitHub Gist 云同步（本机数据与云端 Gist 均保留）。");
+    setGistError("");
+  }
+
   useEffect(() => {
     void load();
-    if (!driveEnabled) return;
-    void syncDrive();
-    const timer = window.setInterval(()=>void syncDrive(),10*60*1000);
-    return ()=>window.clearInterval(timer);
+    const savedGist = readGistConfig();
+    if (savedGist) void runGistSync(savedGist, true);
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const latest = readGistConfig();
+      if (!latest) return;
+      const last = latest.lastSyncAt ? Date.parse(latest.lastSyncAt) : 0;
+      if (!last || Date.now() - last > 60_000) void runGistSync(latest, true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    let timer: number | undefined;
+    if (driveEnabled) {
+      void syncDrive();
+      timer = window.setInterval(()=>void syncDrive(),10*60*1000);
+    }
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      if (timer) window.clearInterval(timer);
+      if (gistTimerRef.current) window.clearTimeout(gistTimerRef.current);
+    };
   }, [driveEnabled]);
 
   useEffect(() => {
@@ -314,6 +394,7 @@ export default function VocabularyDesk() {
     try {
       const saved = await saveRecord(entry,action,fields);
       setEntries(previous => [...previous.filter(item => item.id !== saved.id),saved]);
+      scheduleGistSync();
       return true;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "保存失败，请重试。");
@@ -546,6 +627,23 @@ export default function VocabularyDesk() {
               {driveBusy ? "同步中…" : "Drive 自动同步"}
             </span>
           )}
+          <button
+            type="button"
+            className={"cloud-chip " + (gistConfig ? "connected" : "")}
+            disabled={gistBusy}
+            onClick={() => {
+              if (gistConfig) {
+                void runGistSync();
+              } else {
+                navigate("review");
+                setTimeout(() => document.getElementById("cloud-sync-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+              }
+            }}
+            title={gistConfig ? (gistMessage || `已连接 GitHub Gist 云同步（点击立即同步）`) : "配置 iPhone ↔ 电脑跨设备云同步"}
+          >
+            <Cloud size={14} className={gistBusy ? "spin" : ""}/>
+            <span>{gistBusy ? "云同步中…" : gistConfig ? "云同步已连" : "云同步"}</span>
+          </button>
           <form className="v-top-search" onSubmit={e=>{e.preventDefault();const value=query;navigate("library");setQuery(value);}}>
             <Search size={15}/>
             <input aria-label="全站搜索" placeholder="搜索词句与释义" value={query} onChange={e=>{setQuery(e.target.value);setLimit(40);}}/>
@@ -774,19 +872,88 @@ export default function VocabularyDesk() {
               </section>
             </div>
 
-            <section className="v-panel v-module v-local-backup">
-              <h2>本机学习数据与云同步</h2>
-              <p className="v-muted">进度保存在当前浏览器。换电脑或浏览器时，可以用 JSON 备份迁移。</p>
-              <div className="v-actions">
-                <label className="v-secondary">导入备份
-                  <input type="file" accept=".json,application/json" onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";void importBackup(file);}}/>
-                </label>
-                <button className="v-secondary" disabled={!ready||busy} onClick={exportBackup}>导出备份</button>
-                {driveEnabled && <button className="v-secondary" disabled={driveBusy||busy} onClick={()=>void syncDrive()}>{driveBusy?"正在读取 Google Drive…":"立即同步 Google Drive"}</button>}
+            <section className="v-panel v-module v-local-backup" id="cloud-sync-card">
+              <div className="v-sync-grid">
+                <div className="v-sync-box">
+                  <div className="v-sync-head">
+                    <h2>跨设备云同步（iPhone ↔ 电脑）</h2>
+                    <span className={"v-tag " + (gistConfig ? "mint" : "sky")}>
+                      {gistConfig ? "GitHub Gist 已连接" : "未连接"}
+                    </span>
+                  </div>
+                  <p className="v-muted">
+                    使用你自己的私有 GitHub Gist 自动双向同步复习进度、打卡记录与倒计时。只需在电脑和 iPhone 各粘贴一次同一枚 Token，自动识别同一份私有进度。
+                  </p>
+                  {gistConfig ? (
+                    <div className="v-gist-connected">
+                      <div className="v-gist-meta">
+                        <span>私有 Gist：<code>{gistConfig.gistId.slice(0, 8)}…{gistConfig.gistId.slice(-4)}</code></span>
+                        {gistConfig.lastSyncAt && <span>上次同步：{formatSyncClock(gistConfig.lastSyncAt)}</span>}
+                      </div>
+                      <div className="v-actions">
+                        <button type="button" className="v-primary rc-mini-btn" disabled={gistBusy || busy} onClick={() => void runGistSync()}>
+                          <RefreshCw size={14} className={gistBusy ? "spin" : ""}/>{gistBusy ? "双向同步中…" : "立即双向同步"}
+                        </button>
+                        <button type="button" className="v-secondary rc-mini-btn" disabled={gistBusy} onClick={disconnectGist}>
+                          <CloudOff size={14}/>断开连接
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <form
+                      className="v-gist-form"
+                      onSubmit={e => {
+                        e.preventDefault();
+                        if (gistToken.trim()) void runGistSync({ token: gistToken.trim(), gistId: gistIdInput.trim() });
+                      }}
+                    >
+                      <div className="v-gist-inputs">
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          aria-label="GitHub Token"
+                          placeholder="粘贴 GitHub Token（仅需勾选 gist 权限）"
+                          value={gistToken}
+                          onChange={e => setGistToken(e.target.value)}
+                        />
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          aria-label="可选 Gist ID"
+                          placeholder="Gist ID（留空自动查找或新建）"
+                          value={gistIdInput}
+                          onChange={e => setGistIdInput(e.target.value)}
+                        />
+                      </div>
+                      <div className="v-actions">
+                        <button className="v-primary rc-mini-btn" disabled={!gistToken.trim() || gistBusy}>
+                          <Cloud size={15}/>{gistBusy ? "连接并同步中…" : "连接并同步"}
+                        </button>
+                        <a className="v-secondary rc-mini-btn" href={githubTokenCreateUrl} target="_blank" rel="noreferrer">
+                          一键生成 gist Token <ExternalLink size={13}/>
+                        </a>
+                      </div>
+                    </form>
+                  )}
+                  {gistMessage && <p className="v-muted v-sync-status ok" role="status">{gistMessage}</p>}
+                  {gistError && <p className="v-muted v-sync-status err" role="alert">{gistError}</p>}
+                </div>
+
+                <div className="v-sync-box">
+                  <h2>本机备份与 Google Drive</h2>
+                  <p className="v-muted">支持随时导出 JSON 文件迁移进度；电脑端本地运行时还会自动同步 Google Drive 词书与阅读积累库。</p>
+                  <div className="v-actions" style={{marginTop:12}}>
+                    <label className="v-secondary">导入备份
+                      <input type="file" accept=".json,application/json" onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";void importBackup(file);}}/>
+                    </label>
+                    <button className="v-secondary" disabled={!ready||busy} onClick={exportBackup}>导出备份</button>
+                    {driveEnabled && <button className="v-secondary" disabled={driveBusy||busy} onClick={()=>void syncDrive()}>{driveBusy?"正在读取 Google Drive…":"立即同步 Google Drive"}</button>}
+                  </div>
+                  <p className="v-muted" style={{marginTop:10}} role="status">
+                    {driveEnabled ? driveMessage || "页面打开时同步 Google Drive，随后每 10 分钟检查一次。" : "在 iPhone Safari 点「分享 → 添加到主屏幕」即可像原生 App 一样全屏使用。"}
+                  </p>
+                </div>
               </div>
-              <p className="v-muted" style={{marginTop:10}} role="status">
-                {driveEnabled ? driveMessage || "页面打开时同步，随后每 10 分钟检查一次。" : "双击打开的版本支持离线使用。自动同步请从 project 文件夹启动本地版。"}
-              </p>
             </section>
           </>}
 

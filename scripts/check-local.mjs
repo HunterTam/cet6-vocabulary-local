@@ -115,4 +115,19 @@ const html = await readFile(new URL("../dist/study.html",import.meta.url),"utf8"
 assert.ok(html.includes("data:image/webp;base64,"));
 assert.ok(!/<script[^>]+src=|<link[^>]+stylesheet/.test(html));
 new Function(html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]);
-console.log("Offline bundle, 341 starter words, listening and vocabulary progress, backup merge, and Drive deduplication passed.");
+
+// Verify two-way cloud progress merge keeps newer version and combines review logs.
+const cloudRemote = {
+  ...reviewedQuestion,
+  version: reviewedQuestion.version + 1,
+  stage: Math.min(reviewedQuestion.stage + 1, 6),
+  reviewed: "2026-11-25",
+  due: "2026-11-29",
+  reviewLog: [...(reviewedQuestion.reviewLog ?? []), { at: "2026-11-25T08:00:00.000Z", passed: true, stage: 1, due: "2026-11-29" }],
+};
+const cloudMerged = store.mergeCloudRecords([cloudRemote]);
+assert.equal(cloudMerged.pulled, 1);
+const afterCloud = (await store.listRecords()).find(entry => entry.id === reviewedQuestion.id);
+assert.equal(afterCloud.version, cloudRemote.version);
+assert.equal(afterCloud.reviewLog.length, cloudRemote.reviewLog.length);
+console.log("Offline bundle, 341 starter words, listening and vocabulary progress, backup merge, cloud sync merge, and Drive deduplication passed.");

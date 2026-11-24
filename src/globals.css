@@ -595,6 +595,43 @@ h1, h2, h3, h4, p {
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
+.cloud-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 132, 188, 0.24);
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 680;
+  white-space: nowrap;
+  transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), background 160ms ease, border-color 160ms ease;
+}
+
+.cloud-chip:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: rgba(124, 93, 250, 0.42);
+  color: var(--accent-deep);
+  transform: translateY(-1px);
+}
+
+.cloud-chip.connected {
+  border-color: rgba(32, 164, 114, 0.34);
+  background: linear-gradient(120deg, rgba(232, 253, 242, 0.92), rgba(255, 255, 255, 0.9));
+  color: #147a52;
+}
+
+.spin {
+  animation: spin-360 1s linear infinite;
+}
+
+@keyframes spin-360 {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes pulse-dot {
   50% { opacity: 0.4; transform: scale(0.85); }
 }
@@ -692,12 +729,14 @@ h1, h2, h3, h4, p {
   }
   .workspace {
     margin-left: 0;
-    padding: 10px 12px 86px;
+    padding: max(10px, env(safe-area-inset-top)) 12px calc(92px + env(safe-area-inset-bottom));
   }
   .topbar {
-    top: 8px;
-    padding: 8px 12px;
+    top: max(8px, env(safe-area-inset-top));
+    padding: 7px 10px;
     border-radius: 18px;
+    gap: 8px;
+    min-height: 54px;
   }
   .breadcrumb, .drive-chip, .countdown-date {
     display: none;
@@ -705,11 +744,38 @@ h1, h2, h3, h4, p {
   .countdown-label {
     display: none;
   }
+  .countdown-pill {
+    padding: 4px 10px 4px 5px;
+    min-height: 34px;
+  }
+  .countdown-popover {
+    position: fixed;
+    top: calc(68px + env(safe-area-inset-top));
+    left: 14px;
+    right: 14px;
+    width: auto;
+  }
+  .cloud-chip {
+    min-height: 34px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
   .topbar-left {
     gap: 6px;
   }
   .top-actions {
     flex: 1;
     justify-content: flex-end;
+    gap: 7px;
+  }
+  .topbar .v-primary {
+    min-height: 34px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+  }
+  .vocab input,
+  .vocab select,
+  .vocab textarea {
+    font-size: 16px;
   }
 }
