@@ -1,4 +1,4 @@
-const CACHE_NAME = "cet6-pwa-v5";
+const CACHE_NAME = "cet6-pwa-v6";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", event => {

@@ -3801,7 +3801,7 @@ details[open] .v-chevron-pill {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -3811,7 +3811,235 @@ details[open] .v-chevron-pill {
 
 .fs-stage-body.revealed {
   justify-content: flex-start;
-  padding-top: 2px;
+}
+
+.fs-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Persistent Full-Stage Morphing Card: Giant Word Front -> Silky FLIP Shrink -> Revealed Sheet */
+.fs-morph-card {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 26px;
+  border: 1px solid #ffffff;
+  background:
+    radial-gradient(circle at 50% 24%, rgba(237, 232, 255, 0.72) 0%, rgba(255, 255, 255, 0.94) 58%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 243, 255, 0.9) 100%);
+  box-shadow: inset 0 1px 0 #ffffff, 0 12px 30px rgba(105, 84, 162, 0.08);
+  transition: background 360ms ease, border-color 360ms ease, box-shadow 360ms ease, padding 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+
+.fs-morph-card.is-front {
+  padding: clamp(20px, 3.2vw, 32px) clamp(18px, 3vw, 28px) clamp(16px, 2.5vw, 24px);
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.fs-morph-card.is-revealed {
+  flex: 1;
+  padding: 15px 17px 14px;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.fs-morph-card.is-revealed.tone-know {
+  border-color: rgba(32, 164, 114, 0.3);
+  box-shadow: inset 0 1px 0 #ffffff, 0 12px 28px rgba(32, 164, 114, 0.1);
+}
+
+.fs-morph-card.is-revealed.tone-miss {
+  border-color: rgba(225, 29, 72, 0.24);
+  box-shadow: inset 0 1px 0 #ffffff, 0 12px 28px rgba(225, 29, 72, 0.09);
+}
+
+/* Front State: Giant Centered Word Filling Upper Focal Area (Eliminates Top Void!) */
+.fs-morph-card.is-front .fs-morph-header {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px 4px;
+}
+
+.fs-morph-card.is-front .fs-morph-word-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.fs-morph-card.is-front .fs-morph-title-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.fs-morph-card.is-front .fs-morph-term {
+  font-family: Georgia, "Times New Roman", "Plus Jakarta Sans", serif;
+  font-size: clamp(2.85rem, 11.5vw, 4.1rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  color: #181428;
+  overflow-wrap: anywhere;
+  will-change: transform;
+}
+
+.fs-morph-card.is-front .fs-morph-term.medium {
+  font-size: clamp(2.15rem, 8.2vw, 3.05rem);
+}
+
+.fs-morph-card.is-front .fs-morph-term.long {
+  font-size: clamp(1.5rem, 5.4vw, 2.15rem);
+  line-height: 1.28;
+}
+
+.fs-morph-card.is-front .fs-morph-sub-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.fs-morph-card.is-front .fs-morph-ipa {
+  font-size: clamp(1.08rem, 3.4vw, 1.24rem);
+  font-weight: 560;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  will-change: transform;
+}
+
+.fs-front-lower {
+  flex: none;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.fs-front-hint {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 8px 0;
+}
+
+/* Revealed State: Compact Top Header Where the Giant Word Smoothly Shrinks Into Place */
+.fs-morph-card.is-revealed .fs-morph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(142, 132, 188, 0.14);
+}
+
+.fs-morph-card.is-revealed .fs-morph-word-block {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.fs-morph-card.is-revealed .fs-morph-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fs-morph-card.is-revealed .fs-morph-term {
+  font-family: Georgia, "Times New Roman", "Plus Jakarta Sans", serif;
+  font-size: clamp(1.42rem, 4.4vw, 1.95rem);
+  font-weight: 780;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: #181428;
+  overflow-wrap: anywhere;
+  will-change: transform;
+}
+
+.fs-morph-card.is-revealed .fs-morph-term.long {
+  font-size: clamp(1.15rem, 3.4vw, 1.45rem);
+}
+
+.fs-morph-card.is-revealed .fs-morph-sub-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fs-morph-card.is-revealed .fs-morph-ipa {
+  font-size: 0.88rem;
+  font-weight: 550;
+  color: var(--muted);
+  will-change: transform;
+}
+
+.fs-pop-badge {
+  animation: fs-badge-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) 80ms both;
+}
+
+@keyframes fs-badge-pop {
+  from { opacity: 0; transform: scale(0.75); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.fs-reveal-cascade {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fs-reveal-cascade .fs-lookalike-box {
+  margin-top: auto;
+}
+
+.fs-cascade-item {
+  animation: fs-cascade-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fs-cascade-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.fs-spell-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fs-word-hero.fill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .fs-bottom-dock {
@@ -4211,11 +4439,6 @@ details[open] .v-chevron-pill {
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
-}
-
-.fs-card-body {
-  display: grid;
-  gap: 16px;
 }
 
 .fs-word-hero {
@@ -4889,6 +5112,42 @@ details[open] .v-chevron-pill {
     gap: 8px;
     border-radius: 18px;
   }
+  .fs-morph-card {
+    border-radius: 22px;
+  }
+  .fs-morph-card.is-front {
+    padding: 16px 14px 14px;
+    gap: 12px;
+  }
+  .fs-morph-card.is-front .fs-morph-word-block {
+    gap: 12px;
+  }
+  .fs-morph-card.is-front .fs-morph-sub-line {
+    gap: 12px;
+  }
+  .fs-morph-card.is-front .fs-morph-term {
+    font-size: clamp(2.75rem, 12.2vw, 3.5rem);
+  }
+  .fs-morph-card.is-front .fs-morph-term.medium {
+    font-size: clamp(2.05rem, 8.6vw, 2.65rem);
+  }
+  .fs-morph-card.is-front .fs-morph-term.long {
+    font-size: clamp(1.42rem, 5.5vw, 1.85rem);
+  }
+  .fs-morph-card.is-revealed {
+    padding: 11px 12px;
+    gap: 8px;
+    border-radius: 18px;
+  }
+  .fs-morph-card.is-revealed .fs-morph-header {
+    padding-bottom: 7px;
+  }
+  .fs-morph-card.is-revealed .fs-morph-term {
+    font-size: 1.38rem;
+  }
+  .fs-reveal-cascade {
+    gap: 8px;
+  }
   .fs-unified-head {
     padding-bottom: 7px;
   }
@@ -5177,6 +5436,8 @@ details[open] > .v-card-content {
   .v-feedback,
   .v-feedback-right,
   .v-feedback-wrong,
+  .fs-pop-badge,
+  .fs-cascade-item,
   .rc-kpi,
   .rc-spotlight,
   .rc-toast,

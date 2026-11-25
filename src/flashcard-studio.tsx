@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, BookText, Check, Eye, Flame, GitCompareArrows, Lightbulb, RotateCcw, Sparkles, Volume2, VolumeX, X, Zap } from "lucide-react";
 import type { Entry } from "./data";
 import { spellingMatches, type Card, type Mode } from "./vocabulary";
@@ -38,6 +38,12 @@ const modeNames: Record<Mode, string> = {
 };
 
 type RevealState = undefined | "check-know" | "check-miss" | "shown" | "right" | "wrong";
+
+type FlipSnapshot = {
+  termRect?: DOMRect;
+  ipaRect?: DOMRect;
+  speakRect?: DOMRect;
+};
 
 function splitExampleParts(raw?: string): { english: string; chinese: string; note: string } {
   if (!raw) return { english: "", chinese: "", note: "" };
@@ -80,6 +86,31 @@ function highlightTermInSentence(sentence: string, term: string): ReactNode {
   );
 }
 
+function animateFlip(el: HTMLElement | null, fromRect: DOMRect | undefined, duration = 420) {
+  if (!el || !fromRect || typeof el.animate !== "function") return;
+  const toRect = el.getBoundingClientRect();
+  if (!toRect.width || !toRect.height || !fromRect.width || !fromRect.height) return;
+
+  // Use uniform scale based on height ratio so typography never stretches horizontally/vertically
+  const scale = Math.min(2.8, Math.max(0.55, fromRect.height / toRect.height));
+  const dx = (fromRect.left + fromRect.width / 2) - (toRect.left + toRect.width / 2);
+  const dy = (fromRect.top + fromRect.height / 2) - (toRect.top + toRect.height / 2);
+
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(scale - 1) < 0.03) return;
+
+  el.animate(
+    [
+      { transform: `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0) scale(${scale.toFixed(3)})` },
+      { transform: "translate3d(0, 0, 0) scale(1)" },
+    ],
+    {
+      duration,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+      fill: "none",
+    },
+  );
+}
+
 export function FlashcardStudio({
   session,
   allCards,
@@ -101,6 +132,12 @@ export function FlashcardStudio({
   const [speaking, setSpeaking] = useState(false);
   const [audioNote, setAudioNote] = useState("");
 
+  // Refs for GPU-accelerated FLIP shrink transition from giant front word -> compact reveal header
+  const termRef = useRef<HTMLHeadingElement>(null);
+  const ipaRef = useRef<HTMLSpanElement>(null);
+  const speakRef = useRef<HTMLButtonElement>(null);
+  const flipSnapRef = useRef<FlipSnapshot | null>(null);
+
   const activeId = session.queueIds[session.position];
   const activeCard = activeId ? cardsById.get(activeId) : undefined;
   const finished = session.position >= session.queueIds.length || !activeCard;
@@ -113,6 +150,10 @@ export function FlashcardStudio({
     [activeCard, allCards],
   );
 
+  // Adaptive giant typography size class so short words look huge & long phrases stay crisp
+  const termLength = activeCard?.term.length ?? 0;
+  const termSizeClass = termLength > 26 ? " long" : termLength > 14 ? " medium" : "";
+
   function playText(text: string, dedupeKey?: string) {
     setAudioNote("");
     speakEnglish(text, {
@@ -123,6 +164,30 @@ export function FlashcardStudio({
       onError: msg => setAudioNote(msg),
     });
   }
+
+  function triggerReveal(next: RevealState) {
+    if (!reveal && next && session.mode === "recognize") {
+      const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      if (!reduced) {
+        flipSnapRef.current = {
+          termRect: termRef.current?.getBoundingClientRect(),
+          ipaRect: ipaRef.current?.getBoundingClientRect(),
+          speakRect: speakRef.current?.getBoundingClientRect(),
+        };
+      }
+    }
+    setReveal(next);
+  }
+
+  // Run synchronous FLIP animation right before paint when switching from front -> revealed
+  useLayoutEffect(() => {
+    const snap = flipSnapRef.current;
+    if (!reveal || !snap) return;
+    flipSnapRef.current = null;
+    animateFlip(termRef.current, snap.termRect, 430);
+    animateFlip(ipaRef.current, snap.ipaRect, 400);
+    animateFlip(speakRef.current, snap.speakRect, 380);
+  }, [reveal]);
 
   // Auto-play pronunciation whenever a new card enters (respecting mode & user preference)
   useEffect(() => {
@@ -135,6 +200,7 @@ export function FlashcardStudio({
   useEffect(() => () => stopSpeaking(), []);
 
   function resetCardUi() {
+    flipSnapRef.current = null;
     setReveal(undefined);
     setInput("");
     setLetterHint(false);
@@ -224,17 +290,17 @@ export function FlashcardStudio({
           if (event.key === "1" || event.key === "ArrowLeft") {
             event.preventDefault();
             if (studyPrefs.instantKnow) void commitAndAdvance(true);
-            else setReveal("check-know");
+            else triggerReveal("check-know");
           } else if (event.key === " ") {
             event.preventDefault();
-            setReveal("shown");
+            triggerReveal("shown");
           } else if (event.key === "2" || event.key === "ArrowRight") {
             event.preventDefault();
-            setReveal("check-miss");
+            triggerReveal("check-miss");
           } else if (event.key === "Enter") {
             event.preventDefault();
             if (studyPrefs.instantKnow) void commitAndAdvance(true);
-            else setReveal("check-know");
+            else triggerReveal("check-know");
           }
         } else {
           if (event.key === "1" || event.key === "ArrowLeft") {
@@ -395,7 +461,7 @@ export function FlashcardStudio({
         </div>
       </div>
 
-      {/* Single-Screen Balanced Middle Stage (Zero Scroll Needed) */}
+      {/* Full-Height Balanced Stage — Zero Top Void, Silky Morph on Reveal */}
       <div className={"fs-stage-body" + (reveal ? " revealed" : "")} key={`${session.position}-${activeCard.entry.id}`}>
         <div className="fs-card-tags">
           <span className="v-tag">{activeCard.category}</span>
@@ -407,59 +473,60 @@ export function FlashcardStudio({
           {isRequeued && <span className="v-tag rose"><Flame size={11}/>重练</span>}
         </div>
 
-        {/* RECOGNIZE MODE */}
+        {/* RECOGNIZE MODE — Persistent Morphing Card (Giant Front -> Smooth FLIP Shrink -> Reveal Details) */}
         {session.mode === "recognize" && (
           <div className="fs-card-body">
-            {!reveal ? (
-              <div className="fs-word-hero">
-                <h2 className="fs-term">{activeCard.term}</h2>
-                <div className="fs-audio-row">
-                  {activeCard.pronunciation && <span className="fs-ipa">{activeCard.pronunciation}</span>}
-                  <button
-                    type="button"
-                    className={"fs-speak-orb " + (speaking ? "playing" : "")}
-                    onClick={() => playText(activeCard.term)}
-                    aria-label="播放单词发音"
-                    title="播放发音 (快捷键 R)"
-                  >
-                    <Volume2 size={18}/>
-                    <span>{speaking ? "朗读中…" : "听发音"}</span>
-                  </button>
-                </div>
-                {audioNote && <p className="v-muted fs-audio-note">{audioNote}</p>}
-
-                {/* Contextual English Example on Front Card (No Chinese Spoiler!) */}
-                {englishExample && (
-                  <div className="fs-front-example">
-                    <div className="fs-front-ex-head">
-                      <span className="fs-front-ex-label"><BookText size={13}/>语境例句</span>
-                      <button
-                        type="button"
-                        className="fs-mini-speak"
-                        onClick={() => playText(englishExample)}
-                        title="朗读这句英文例句"
+            <div
+              className={
+                "fs-morph-card " +
+                (reveal ? "is-revealed " : "is-front ") +
+                (reveal === "check-know" ? "tone-know" : reveal === "check-miss" ? "tone-miss" : "")
+              }
+            >
+              {/* Persistent Word + IPA + Audio Region (Stays Mounted for 60fps FLIP Glide & Shrink) */}
+              <div className="fs-morph-header">
+                <div className="fs-morph-word-block">
+                  <div className="fs-morph-title-line">
+                    <h2 ref={termRef} className={"fs-morph-term" + termSizeClass}>
+                      {activeCard.term}
+                    </h2>
+                    {reveal && (
+                      <span
+                        className={
+                          "v-feedback-badge compact fs-pop-badge " +
+                          (reveal === "check-know" ? "right" : reveal === "check-miss" ? "wrong" : "shown")
+                        }
                       >
-                        <Volume2 size={13}/>读例句
-                      </button>
-                    </div>
-                    <p className="fs-front-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* Unified Single-Screen Reveal Card: Word + Meaning + Example + 2x2 Look-Alikes */
-              <div className={"fs-unified-reveal " + (reveal === "check-know" ? "v-feedback-right" : reveal === "check-miss" ? "v-feedback-wrong" : "")}>
-                <div className="fs-unified-head">
-                  <div className="fs-unified-word">
-                    <div className="fs-unified-title-row">
-                      <h2 className="fs-term compact">{activeCard.term}</h2>
-                      <span className={"v-feedback-badge compact " + (reveal === "check-know" ? "right" : reveal === "check-miss" ? "wrong" : "shown")}>
                         {reveal === "check-know" ? "✓ 认识" : reveal === "check-miss" ? "需重练" : "释义"}
                       </span>
-                    </div>
-                    {activeCard.pronunciation && <span className="fs-ipa compact">{activeCard.pronunciation}</span>}
+                    )}
                   </div>
+
+                  <div className="fs-morph-sub-line">
+                    {activeCard.pronunciation && (
+                      <span ref={ipaRef} className="fs-morph-ipa">
+                        {activeCard.pronunciation}
+                      </span>
+                    )}
+                    {!reveal && (
+                      <button
+                        ref={speakRef}
+                        type="button"
+                        className={"fs-speak-orb " + (speaking ? "playing" : "")}
+                        onClick={() => playText(activeCard.term)}
+                        aria-label="播放单词发音"
+                        title="播放发音 (快捷键 R)"
+                      >
+                        <Volume2 size={19}/>
+                        <span>{speaking ? "朗读中…" : "听发音"}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {reveal && (
                   <button
+                    ref={speakRef}
                     type="button"
                     className={"fs-speak-circle " + (speaking ? "playing" : "")}
                     onClick={() => playText(activeCard.term)}
@@ -468,65 +535,100 @@ export function FlashcardStudio({
                   >
                     <Volume2 size={18}/>
                   </button>
-                </div>
-
-                <p className="fs-meaning compact">{activeCard.meaning}</p>
-
-                {(englishExample || exampleParts.chinese || exampleParts.note) && (
-                  <div className="fs-example-card compact">
-                    <div className="fs-example-content">
-                      {englishExample && (
-                        <p className="fs-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
-                      )}
-                      {exampleParts.chinese && <p className="fs-ex-zh">{exampleParts.chinese}</p>}
-                      {exampleParts.note && <p className="fs-ex-note">{exampleParts.note}</p>}
-                    </div>
-                    {englishExample && (
-                      <button
-                        type="button"
-                        className="fs-ex-speak-icon"
-                        onClick={() => playText(englishExample)}
-                        aria-label="朗读例句"
-                        title="朗读例句"
-                      >
-                        <Volume2 size={15}/>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {lookAlikes.length > 0 && (
-                  <div className="fs-lookalike-box compact">
-                    <div className="fs-lookalike-head">
-                      <GitCompareArrows size={13}/>
-                      <strong>形近易混词</strong>
-                      <span>点词听发音</span>
-                    </div>
-                    <div className="fs-lookalike-grid">
-                      {lookAlikes.map(peer => (
-                        <button
-                          key={peer.term}
-                          type="button"
-                          className="fs-lookalike-chip"
-                          onClick={() => playText(peer.term)}
-                          title={`点击听 ${peer.term} 的发音`}
-                        >
-                          <div className="fs-la-top">
-                            <strong>{peer.term}</strong>
-                            <Volume2 size={12}/>
-                          </div>
-                          <small>{peer.meaning}</small>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {activeCard.entry.fields.previousSpelling && (
-                  <p className="v-muted fs-prev-spell">曾易错拼写：<strong>{activeCard.entry.fields.previousSpelling}</strong></p>
                 )}
               </div>
-            )}
+
+              {audioNote && <p className="v-muted fs-audio-note">{audioNote}</p>}
+
+              {/* Front State Lower Zone: Contextual English Example Anchored Cleanly Inside Hero Card */}
+              {!reveal && (
+                <div className="fs-front-lower">
+                  {englishExample ? (
+                    <div className="fs-front-example">
+                      <div className="fs-front-ex-head">
+                        <span className="fs-front-ex-label"><BookText size={13}/>语境例句</span>
+                        <button
+                          type="button"
+                          className="fs-mini-speak"
+                          onClick={() => playText(englishExample)}
+                          title="朗读这句英文例句"
+                        >
+                          <Volume2 size={13}/>读例句
+                        </button>
+                      </div>
+                      <p className="fs-front-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
+                    </div>
+                  ) : (
+                    <p className="fs-front-hint">先回想中文意思，再点下方按钮核对</p>
+                  )}
+                </div>
+              )}
+
+              {/* Revealed State Cascading Details: Meaning -> Bilingual Example -> 2x2 Look-Alikes */}
+              {reveal && (
+                <div className="fs-reveal-cascade">
+                  <p className="fs-meaning compact fs-cascade-item" style={{ animationDelay: "70ms" }}>
+                    {activeCard.meaning}
+                  </p>
+
+                  {(englishExample || exampleParts.chinese || exampleParts.note) && (
+                    <div className="fs-example-card compact fs-cascade-item" style={{ animationDelay: "130ms" }}>
+                      <div className="fs-example-content">
+                        {englishExample && (
+                          <p className="fs-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
+                        )}
+                        {exampleParts.chinese && <p className="fs-ex-zh">{exampleParts.chinese}</p>}
+                        {exampleParts.note && <p className="fs-ex-note">{exampleParts.note}</p>}
+                      </div>
+                      {englishExample && (
+                        <button
+                          type="button"
+                          className="fs-ex-speak-icon"
+                          onClick={() => playText(englishExample)}
+                          aria-label="朗读例句"
+                          title="朗读例句"
+                        >
+                          <Volume2 size={15}/>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {lookAlikes.length > 0 && (
+                    <div className="fs-lookalike-box compact fs-cascade-item" style={{ animationDelay: "190ms" }}>
+                      <div className="fs-lookalike-head">
+                        <GitCompareArrows size={13}/>
+                        <strong>形近易混词</strong>
+                        <span>点词听发音</span>
+                      </div>
+                      <div className="fs-lookalike-grid">
+                        {lookAlikes.map(peer => (
+                          <button
+                            key={peer.term}
+                            type="button"
+                            className="fs-lookalike-chip"
+                            onClick={() => playText(peer.term)}
+                            title={`点击听 ${peer.term} 的发音`}
+                          >
+                            <div className="fs-la-top">
+                              <strong>{peer.term}</strong>
+                              <Volume2 size={12}/>
+                            </div>
+                            <small>{peer.meaning}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeCard.entry.fields.previousSpelling && (
+                    <p className="v-muted fs-prev-spell fs-cascade-item" style={{ animationDelay: "230ms" }}>
+                      曾易错拼写：<strong>{activeCard.entry.fields.previousSpelling}</strong>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -534,15 +636,15 @@ export function FlashcardStudio({
         {session.mode !== "recognize" && (
           <div className="fs-card-body">
             {!reveal ? (
-              <>
+              <div className="fs-spell-stage">
                 {session.mode === "spelling" ? (
-                  <div className="fs-word-hero">
+                  <div className="fs-word-hero fill">
                     <button
                       type="button"
                       className={"fs-speak-orb large " + (speaking ? "playing" : "")}
                       onClick={() => playText(activeCard.term)}
                     >
-                      <Volume2 size={22}/>
+                      <Volume2 size={24}/>
                       <span>{speaking ? "正在朗读…" : "重播发音 (R)"}</span>
                     </button>
                     <p className="fs-spell-cue">听发音写出完整英文{!letterHint ? "，想不起可点提示" : ""}</p>
@@ -559,7 +661,7 @@ export function FlashcardStudio({
                     )}
                   </div>
                 ) : (
-                  <div className="fs-word-hero">
+                  <div className="fs-word-hero fill">
                     <p className="fs-recall-meaning">{activeCard.meaning}</p>
                     {exampleParts.chinese && (
                       <p className="fs-recall-ex-zh">例句提示：{exampleParts.chinese}</p>
@@ -597,7 +699,7 @@ export function FlashcardStudio({
                     onChange={e => setInput(e.target.value)}
                   />
                 </form>
-              </>
+              </div>
             ) : (
               <div className={"fs-unified-reveal " + (reveal === "right" ? "v-feedback-right" : "v-feedback-wrong")}>
                 <div className="fs-unified-head">
@@ -698,15 +800,15 @@ export function FlashcardStudio({
               disabled={busy}
               onClick={() => {
                 if (studyPrefs.instantKnow) void commitAndAdvance(true);
-                else setReveal("check-know");
+                else triggerReveal("check-know");
               }}
             >
               <Check size={17}/><span>认识</span><kbd>1</kbd>
             </button>
-            <button type="button" className="fs-btn-mid" disabled={busy} onClick={() => setReveal("shown")}>
+            <button type="button" className="fs-btn-mid" disabled={busy} onClick={() => triggerReveal("shown")}>
               <Eye size={16}/><span>看释义</span><kbd>Space</kbd>
             </button>
-            <button type="button" className="fs-btn-miss" disabled={busy} onClick={() => setReveal("check-miss")}>
+            <button type="button" className="fs-btn-miss" disabled={busy} onClick={() => triggerReveal("check-miss")}>
               <X size={16}/><span>不认识</span><kbd>2</kbd>
             </button>
           </div>
