@@ -1,18 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, ChevronDown, ChevronRight, Cloud, Eye, Flame, Headphones, LibraryBig, PencilLine, Play, Plus, Search, Settings2, Shuffle, Sparkles, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
+import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Cloud, ExternalLink, Eye, Flame, Headphones, LibraryBig, PencilLine, Play, Plus, Search, Settings2, Shuffle, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
 import { dateKey, firstAnswer, type Entry } from "./data";
 import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, studyStreakDays, vocabulary, type Card, type Mode } from "./vocabulary";
 import { dailyBatches } from "./daily-vocabulary";
-import { type ParsedImportCard } from "./reading-vocabulary";
+import { readingDocUrl, type ParsedImportCard } from "./reading-vocabulary";
 import { ReviewCurve } from "./review-curve";
 import { importGptNotes, importRecords, listRecords, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
 import { clearGistConfig, readGistConfig, syncWithGist, type GistConfig } from "./cloud-sync";
 import { ListeningReview } from "./listening-review";
 import { FlashcardStudio } from "./flashcard-studio";
 import { GptImportModal } from "./gpt-import-modal";
-import { DeckPickerModal, type DeckItem } from "./deck-picker-modal";
+import { type DeckItem } from "./deck-picker-modal";
 import { SyncSettingsModal } from "./sync-settings-modal";
 import {
   buildStudySession,
@@ -122,13 +122,13 @@ export default function VocabularyDesk() {
   const [countdownOpen, setCountdownOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const countdownRef = useRef<HTMLDivElement>(null);
-  const [selectedDeckId, setSelectedDeckId] = useState("today-mix");
+  const [selectedDeckId, setSelectedDeckId] = useState("day-1");
+  const [deckTab, setDeckTab] = useState<"book" | "reading" | "smart">("book");
   const [selectedMode, setSelectedMode] = useState<Mode>("recognize");
   const [audioPrefs, setAudioPrefs] = useState<AudioPrefs>(readAudioPrefs);
   const [studyPrefs, setStudyPrefs] = useState<StudyPrefs>(readStudyPrefs);
   const [activeSession, setActiveSession] = useState<SavedSession | null>(null);
   const [savedSession, setSavedSession] = useState<SavedSession | null>(readSavedSession);
-  const [deckModalOpen, setDeckModalOpen] = useState(false);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [gptModalOpen, setGptModalOpen] = useState(false);
   const [limit, setLimit] = useState(40);
@@ -666,10 +666,9 @@ export default function VocabularyDesk() {
     if (startImmediately) launchSession(deck, nextMode);
   }
 
-  const quickDecks = useMemo(
-    () => ["reading-word", "reading-phrase", "gpt-daily"].map(id => decks.find(d => d.id === id)).filter((d): d is DeckItem => Boolean(d)),
-    [decks],
-  );
+  const tabDecks = useMemo(() => decks.filter(d => d.section === deckTab), [decks, deckTab]);
+  const activeDeckLearned = activeDeck ? activeDeck.cards.filter(c => Boolean(c.entry.reviewed)).length : 0;
+  const activeDeckPct = activeDeck?.cards.length ? Math.round((activeDeckLearned / activeDeck.cards.length) * 100) : 0;
 
   const navCounts: Partial<Record<View, string>> = ready ? {
     review: String(duePlayableCount),
@@ -808,230 +807,236 @@ export default function VocabularyDesk() {
 
         <div className="v-stage" key={view}>
         {view==="review" && <>
-          {!activeSession && <>
-            {/* Single Clean Focus Card — Everything Needed in One Screen */}
-            <section className="home-focus-card">
-              <div className="home-focus-top">
-                <button
-                  type="button"
-                  className="home-deck-trigger"
-                  onClick={() => setDeckModalOpen(true)}
-                  title="点击切换词本（阅读生词/短语、词书 Day 1–4、GPT 词单）"
-                >
-                  <BookOpen size={15}/>
-                  <span>{activeDeck?.title || "今日全部待复习"}</span>
-                  <i className="home-deck-count">{ready ? `${activeDeckDue.length} 待背` : "…"}</i>
-                  <ChevronDown size={15}/>
-                </button>
+          {!activeSession && (
+            <div className="home-split">
+              {/* Left Column: Clean, Calm Study Start Card */}
+              <section className="home-start-card">
+                <div className="home-start-head">
+                  <div>
+                    <span className="home-start-kicker">当前词表</span>
+                    <span className="home-start-deck-name">{activeDeck?.title || "第 1 天词书"}</span>
+                  </div>
+                  <img className="home-start-mascot" src={heroArt} alt="" width="56" height="56"/>
+                </div>
 
-                <button
-                  type="button"
-                  className="home-subtle-btn"
-                  onClick={() => setGptModalOpen(true)}
-                >
-                  <Upload size={14}/>导入 GPT 词单
-                </button>
-              </div>
-
-              <div className="home-focus-main">
-                <div className="home-focus-copy">
-                  {ready && savedSession ? (
+                <div className="home-start-center">
+                  {ready && savedSession && (
                     <div className="home-resume-chip">
                       <Play size={12}/>
-                      <span>上次背到：{savedSession.deckLabel}（第 {savedSession.position + 1}/{savedSession.queueIds.length} 步）</span>
-                      <button type="button" aria-label="清除上次断点" onClick={discardSavedSession}><X size={12}/></button>
+                      <span>上次进度：{savedSession.deckLabel}（{savedSession.position + 1}/{savedSession.queueIds.length}）</span>
+                      <button type="button" aria-label="清除断点" onClick={discardSavedSession}><X size={12}/></button>
                     </div>
-                  ) : (
-                    <span className="v-hero-tag"><Sparkles size={13}/> 自动播音 · 断点续背 · 错词重练</span>
                   )}
 
-                  <h1>
-                    {ready
-                      ? activeDeckDue.length > 0
-                        ? <>今日待背 <em>{activeDeckDue.length}</em> 词</>
-                        : <>本词本今日已清空</>
-                      : "正在准备今日词库…"}
-                  </h1>
-                  <p className="home-focus-sub">
-                    今日已背 <b>{reviewed}</b> 词 · 全库已巩固 <b>{masteredCount}</b> 词 · 共收录 <b>{cards.length}</b> 条（含阅读生词/短语 {readingAllCards.length} 条）
-                  </p>
-
-                  {/* Compact Inline Mode & Batch Options */}
-                  <div className="home-inline-bar">
-                    <div className="home-mode-seg" role="tablist" aria-label="背诵方式">
-                      {modes.map(({ id, title, icon: Icon }) => {
-                        const ok = (activeDeck?.cards ?? []).some(c => eligible(c, id));
-                        return (
-                          <button
-                            key={id}
-                            type="button"
-                            role="tab"
-                            aria-selected={selectedMode === id}
-                            disabled={!ready || !ok}
-                            className={selectedMode === id ? "active" : ""}
-                            onClick={() => setSelectedMode(id)}
-                          >
-                            <Icon size={14}/>{title}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="home-mini-toggles">
-                      <select
-                        aria-label="每组词数"
-                        className="home-mini-select"
-                        value={studyPrefs.groupSize}
-                        onChange={e => updateStudyPrefs({ ...studyPrefs, groupSize: Number(e.target.value) })}
-                      >
-                        {groupSizeOptions.map(opt => (
-                          <option key={opt.value} value={opt.value}>每组 {opt.label}</option>
-                        ))}
-                      </select>
-
-                      <button
-                        type="button"
-                        className={"home-mini-pill " + (audioPrefs.autoPlay ? "on" : "")}
-                        onClick={() => updateAudioPrefs({ ...audioPrefs, autoPlay: !audioPrefs.autoPlay })}
-                        title="切换自动播放英文发音"
-                      >
-                        {audioPrefs.autoPlay ? <Volume2 size={14}/> : <VolumeX size={14}/>}
-                        <span>{audioPrefs.autoPlay ? "自动播音" : "静音"}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className={"home-mini-pill " + (studyPrefs.shuffle ? "on" : "")}
-                        onClick={() => updateStudyPrefs({ ...studyPrefs, shuffle: !studyPrefs.shuffle })}
-                        title="切换顺序或随机打乱"
-                      >
-                        <Shuffle size={13}/>
-                        <span>{studyPrefs.shuffle ? "随机" : "顺序"}</span>
-                      </button>
-                    </div>
+                  <div className="home-big-stat">
+                    <strong>{ready ? activeDeckDue.length : "—"}</strong>
+                    <span>词待背</span>
                   </div>
 
-                  {/* Primary Action CTA */}
-                  <div className="home-cta-row">
-                    {ready && savedSession ? (
-                      <>
-                        <button type="button" className="home-cta-primary" onClick={resumeSavedSession}>
-                          <Play size={18}/>继续上次背诵 ({savedSession.position + 1}/{savedSession.queueIds.length})
+                  <p className="home-start-meta">
+                    今日已背 <b>{reviewed}</b> 词 · 本表已学 <b>{activeDeckLearned}/{activeDeck?.cards.length ?? 0}</b>
+                  </p>
+
+                  <div className="home-start-bar" aria-hidden="true">
+                    <i style={{ width: `${activeDeckPct}%` }}/>
+                  </div>
+                </div>
+
+                <div className="home-start-actions">
+                  {ready && savedSession ? (
+                    <>
+                      <button type="button" className="home-cta-primary full" onClick={resumeSavedSession}>
+                        <Play size={18}/>继续上次背诵 ({savedSession.position + 1}/{savedSession.queueIds.length})
+                      </button>
+                      <button
+                        type="button"
+                        className="home-cta-secondary full"
+                        disabled={!activeDeckPlayable.length}
+                        onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                      >
+                        开背「{activeDeck?.title}」· {nextBatchSize} 词
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="home-cta-primary full"
+                      disabled={!ready || !activeDeckPlayable.length}
+                      onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                    >
+                      <Play size={18}/>
+                      {activeDeckDue.length
+                        ? `开始背诵 · ${nextBatchSize} 词`
+                        : activeDeckPlayable.length
+                          ? `继续下一组复习 · ${nextBatchSize} 词`
+                          : "当前词表暂无可练词条"}
+                    </button>
+                  )}
+                </div>
+
+                {/* Quiet Inline Mode & Study Controls */}
+                <div className="home-start-foot">
+                  <div className="home-mode-seg full" role="tablist" aria-label="背诵方式">
+                    {modes.map(({ id, title, icon: Icon }) => {
+                      const ok = (activeDeck?.cards ?? []).some(c => eligible(c, id));
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          role="tab"
+                          aria-selected={selectedMode === id}
+                          disabled={!ready || !ok}
+                          className={selectedMode === id ? "active" : ""}
+                          onClick={() => setSelectedMode(id)}
+                        >
+                          <Icon size={14}/>{title}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="home-quiet-prefs">
+                    <select
+                      aria-label="每组词数"
+                      className="home-mini-select"
+                      value={studyPrefs.groupSize}
+                      onChange={e => updateStudyPrefs({ ...studyPrefs, groupSize: Number(e.target.value) })}
+                    >
+                      {groupSizeOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>每组 {opt.label}</option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      className={"home-mini-pill " + (audioPrefs.autoPlay ? "on" : "")}
+                      onClick={() => updateAudioPrefs({ ...audioPrefs, autoPlay: !audioPrefs.autoPlay })}
+                    >
+                      {audioPrefs.autoPlay ? <Volume2 size={14}/> : <VolumeX size={14}/>}
+                      <span>{audioPrefs.autoPlay ? "自动播音" : "静音"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={"home-mini-pill " + (studyPrefs.shuffle ? "on" : "")}
+                      onClick={() => updateStudyPrefs({ ...studyPrefs, shuffle: !studyPrefs.shuffle })}
+                    >
+                      <Shuffle size={13}/>
+                      <span>{studyPrefs.shuffle ? "随机" : "顺序"}</span>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              {/* Right Column: Intuitive Categorized Wordlist Picker */}
+              <section className="v-panel home-deck-panel">
+                <div className="home-deck-panel-head">
+                  <h2>选择词表</h2>
+                  <button type="button" className="v-secondary rc-mini-btn" onClick={() => setGptModalOpen(true)}>
+                    <Upload size={14}/>导入 GPT 词单
+                  </button>
+                </div>
+
+                <div className="deck-tabs" role="tablist" aria-label="词表分类">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={deckTab === "book"}
+                    className={deckTab === "book" ? "active" : ""}
+                    onClick={() => setDeckTab("book")}
+                  >
+                    词书词表
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={deckTab === "reading"}
+                    className={deckTab === "reading" ? "active" : ""}
+                    onClick={() => setDeckTab("reading")}
+                  >
+                    阅读积累 <i>{readingAllCards.length}</i>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={deckTab === "smart"}
+                    className={deckTab === "smart" ? "active" : ""}
+                    onClick={() => setDeckTab("smart")}
+                  >
+                    综合 & GPT
+                  </button>
+                </div>
+
+                <div className="deck-row-list">
+                  {tabDecks.map(deck => {
+                    const selected = deck.id === selectedDeckId;
+                    const total = deck.cards.length;
+                    const learned = deck.cards.filter(c => Boolean(c.entry.reviewed)).length;
+                    const dueCnt = deck.cards.filter(c => !c.entry.due || c.entry.due <= today).length;
+                    const pct = total ? Math.round((learned / total) * 100) : 0;
+                    return (
+                      <div key={deck.id} className={"deck-row " + (selected ? "selected" : "")}>
+                        <button
+                          type="button"
+                          className="deck-row-main"
+                          aria-pressed={selected}
+                          onClick={() => selectDeck(deck, false)}
+                        >
+                          <span className={"deck-radio " + (selected ? "checked" : "")}>
+                            {selected && <Check size={12}/>}
+                          </span>
+                          <div className="deck-row-text">
+                            <strong>{deck.title}</strong>
+                            <small>{deck.subtitle}</small>
+                          </div>
+                          <div className="deck-row-stats">
+                            <span className={"deck-due-pill " + (dueCnt ? "" : "done")}>
+                              {dueCnt ? `待背 ${dueCnt}` : "已清"}
+                            </span>
+                            <span className="deck-row-bar"><i style={{ width: `${pct}%` }}/></span>
+                          </div>
                         </button>
                         <button
                           type="button"
-                          className="hero-secondary"
-                          disabled={!activeDeckPlayable.length}
-                          onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                          className="deck-row-play"
+                          disabled={!total}
+                          title={`直接开始背诵「${deck.title}」`}
+                          aria-label={`直接开始背诵 ${deck.title}`}
+                          onClick={() => selectDeck(deck, true)}
                         >
-                          重开一组 ({nextBatchSize} 词)
+                          <Play size={14}/>
                         </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        className="home-cta-primary"
-                        disabled={!ready || !activeDeckPlayable.length}
-                        onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
-                      >
-                        <Play size={18}/>
-                        {activeDeckDue.length
-                          ? `开始背诵 · 本组 ${nextBatchSize} 词`
-                          : activeDeckPlayable.length
-                            ? `继续自由复习 · ${nextBatchSize} 词`
-                            : "当前词本暂无可练词条"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="v-hero-render home-render" aria-hidden="true">
-                  <div className="v-hero-glow"/>
-                  <div className="v-hero-card-float one"><i/><i/><i/></div>
-                  <div className="v-hero-card-float two"><i/><i/></div>
-                  <img src={heroArt} alt="" width="500" height="500" fetchPriority="high"/>
-                </div>
-              </div>
-            </section>
-
-            {/* Compact 3-Card Bento Row — Clean, Scannable, Zero Clutter */}
-            <div className="home-bento-row">
-              <section className="v-panel home-bento-card">
-                <div className="home-bento-head">
-                  <h2>今日进度</h2>
-                  <span className="v-tag mint">连胜 {streak} 天</span>
-                </div>
-                <div className="home-mini-bars">
-                  <div className="v-goal-row">
-                    <div className="v-goal-head"><span>今日复习完成度</span><span>{todayGoalPct}%</span></div>
-                    <div className="v-track"><div className="v-fill purple" style={{width:`${todayGoalPct}%`}}/></div>
-                  </div>
-                  <div className="v-goal-row">
-                    <div className="v-goal-head"><span>听力复盘掌握度</span><span>{listenGoalPct}%</span></div>
-                    <div className="v-track"><div className="v-fill mint" style={{width:`${listenGoalPct}%`}}/></div>
-                  </div>
-                  <div className="v-goal-row">
-                    <div className="v-goal-head"><span>开放词库巩固率</span><span>{vocabGoalPct}%</span></div>
-                    <div className="v-track"><div className="v-fill peach" style={{width:`${vocabGoalPct}%`}}/></div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="v-panel home-bento-card">
-                <div className="home-bento-head">
-                  <h2>常用词本直达</h2>
-                  <button type="button" className="home-link-btn" onClick={() => setDeckModalOpen(true)}>
-                    全部 {decks.length} 个词本 →
-                  </button>
-                </div>
-                <div className="home-quick-list">
-                  {quickDecks.map(deck => {
-                    const dueCnt = deck.cards.filter(c => !c.entry.due || c.entry.due <= today).length;
-                    return (
-                      <button
-                        key={deck.id}
-                        type="button"
-                        className={"home-quick-item " + (deck.id === selectedDeckId ? "active" : "")}
-                        onClick={() => selectDeck(deck, true)}
-                      >
-                        <div>
-                          <strong>{deck.title}</strong>
-                          <small>{deck.cards.length} 条 · 待背 {dueCnt}</small>
-                        </div>
-                        <span className="home-quick-go"><Play size={13}/></span>
-                      </button>
+                      </div>
                     );
                   })}
-                </div>
-              </section>
 
-              <section className="v-panel home-bento-card">
-                <div className="home-bento-head">
-                  <h2>云同步与备份</h2>
-                  <span className={"v-tag " + (gistConfig ? "mint" : "sky")}>
-                    {gistConfig ? "Gist 已连" : "未配置"}
-                  </span>
+                  {deckTab === "smart" && (
+                    <button type="button" className="deck-import-row" onClick={() => setGptModalOpen(true)}>
+                      <Upload size={15}/>
+                      <span>粘贴 ChatGPT 每日推送词单，一键导入开背</span>
+                    </button>
+                  )}
                 </div>
-                <p className="v-muted home-sync-desc">
-                  {gistConfig
-                    ? `上次云同步：${formatSyncClock(gistConfig.lastSyncAt) || "刚刚"}。每次背词自动双向同步至 iPhone 与电脑。`
-                    : "配置 GitHub Gist 后，iPhone 与电脑自动双向同步进度；也可随时导出 JSON 备份。"}
-                </p>
-                <div className="home-sync-actions">
-                  <button type="button" className="v-secondary rc-mini-btn" onClick={() => setSyncModalOpen(true)}>
-                    <Settings2 size={14}/>同步与备份设置
-                  </button>
-                  <button type="button" className="v-secondary rc-mini-btn" onClick={() => navigate("library")}>
-                    词句库 ({cards.length})
-                  </button>
+
+                <div className="home-deck-panel-foot">
+                  <span className="v-muted">今日完成 {todayGoalPct}% · 听力掌握 {listenGoalPct}% · 连胜 {streak} 天</span>
+                  <div className="home-deck-foot-links">
+                    <button type="button" className="home-link-btn" onClick={() => setSyncModalOpen(true)}>
+                      <Settings2 size={13}/>同步与备份
+                    </button>
+                    <a className="home-link-btn" href={readingDocUrl} target="_blank" rel="noreferrer">
+                      阅读源文档 <ExternalLink size={12}/>
+                    </a>
+                  </div>
                 </div>
               </section>
             </div>
-          </>}
+          )}
 
           {activeSession && (
             <FlashcardStudio
               session={activeSession}
+              allCards={cards}
               cardsById={cardsById}
               busy={busy}
               audioPrefs={audioPrefs}
@@ -1194,16 +1199,6 @@ export default function VocabularyDesk() {
         </div>
       </main>
     </div>
-    <DeckPickerModal
-      open={deckModalOpen}
-      decks={decks}
-      selectedDeckId={selectedDeckId}
-      readingTotal={readingAllCards.length}
-      today={today}
-      onClose={() => setDeckModalOpen(false)}
-      onSelect={selectDeck}
-      onOpenGptImport={() => setGptModalOpen(true)}
-    />
     <SyncSettingsModal
       open={syncModalOpen}
       ready={ready}

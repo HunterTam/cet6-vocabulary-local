@@ -1,4 +1,6 @@
 import { dateKey, firstAnswer, type Entry } from "./data";
+import { bookExamples1To3 } from "./book-examples-1-3";
+import { readingExamples } from "./reading-examples";
 
 export type Mode = "spelling" | "recognize" | "recall";
 export type Card = { entry: Entry; term: string; meaning: string; pronunciation: string; example: string; category: string; source: string };
@@ -10,11 +12,20 @@ export function vocabulary(entries: Entry[]): Card[] {
     const category = fields.category === "词汇" ? "单词" : fields.category || "单词";
     if (["解题规律", "可迁移规律"].includes(category) || !fields.title) return [];
     const [first = "", ...rest] = (fields.body || "").split("\n");
-    const pronunciation = /^\/[^/]+\/$/.test(first.trim()) ? first.trim() : "";
+    const rawPron = /^\/[^/]+\/$/.test(first.trim()) ? first.trim() : "";
+    const lookupKey = fields.title.trim().toLowerCase();
+    const bookDetail = bookExamples1To3[lookupKey];
+    const readDetail = readingExamples[lookupKey];
+    const pronunciation = rawPron || (bookDetail ? bookDetail[0] : "");
+    const fallbackExample = bookDetail
+      ? `${bookDetail[1]}\n${bookDetail[2]}`
+      : readDetail
+        ? `${readDetail[0]}\n${readDetail[1]}`
+        : "";
     return [{
       entry, term: fields.title, category, pronunciation,
-      meaning: (pronunciation ? rest.join("\n") : fields.body || "").trim(),
-      example: fields.example || "",
+      meaning: (rawPron ? rest.join("\n") : fields.body || "").trim(),
+      example: (fields.example || "").trim() || fallbackExample,
       source: fields.origin || (entry.source?.key.startsWith("drive:") ? "阅读积累库" : "阅读分析"),
     }];
   });
