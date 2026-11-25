@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, BookText, Check, Eye, Flame, GitCompareArrows, Lightbulb, RotateCcw, Sparkles, Volume2, VolumeX, Zap } from "lucide-react";
+import { ArrowLeft, BookText, Check, Eye, Flame, GitCompareArrows, Lightbulb, RotateCcw, Sparkles, Volume2, VolumeX, X, Zap } from "lucide-react";
 import type { Entry } from "./data";
 import { spellingMatches, type Card, type Mode } from "./vocabulary";
 import { findLookAlikes } from "./confusable-words";
@@ -221,22 +221,29 @@ export function FlashcardStudio({
 
       if (session.mode === "recognize") {
         if (!reveal) {
-          if (event.key === "1") {
+          if (event.key === "1" || event.key === "ArrowLeft") {
             event.preventDefault();
-            setReveal("check-miss");
+            if (studyPrefs.instantKnow) void commitAndAdvance(true);
+            else setReveal("check-know");
           } else if (event.key === " ") {
             event.preventDefault();
             setReveal("shown");
-          } else if (event.key === "2" || event.key === "Enter") {
+          } else if (event.key === "2" || event.key === "ArrowRight") {
+            event.preventDefault();
+            setReveal("check-miss");
+          } else if (event.key === "Enter") {
             event.preventDefault();
             if (studyPrefs.instantKnow) void commitAndAdvance(true);
             else setReveal("check-know");
           }
         } else {
-          if (event.key === "1") {
+          if (event.key === "1" || event.key === "ArrowLeft") {
+            event.preventDefault();
+            void commitAndAdvance(true);
+          } else if (event.key === "2" || event.key === "ArrowRight") {
             event.preventDefault();
             void commitAndAdvance(false);
-          } else if (event.key === "2" || event.key === "Enter" || event.key === " ") {
+          } else if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             void commitAndAdvance(reveal !== "check-miss");
           }
@@ -327,17 +334,26 @@ export function FlashcardStudio({
 
   return (
     <section className="v-panel fs-shell">
-      {/* Top Focus Bar */}
+      {/* Compact Single-Row Top Focus Bar */}
       <div className="fs-topbar">
-        <button type="button" className="fs-back-btn" disabled={busy} onClick={() => { stopSpeaking(); onExit(); }}>
+        <button
+          type="button"
+          className="fs-back-btn"
+          disabled={busy}
+          title="暂存进度并返回"
+          onClick={() => { stopSpeaking(); onExit(); }}
+        >
           <ArrowLeft size={16}/>
-          <span>暂存并返回</span>
+          <span>返回</span>
         </button>
 
         <div className="fs-progress-meta">
           <div className="fs-progress-labels">
             <strong>{session.deckLabel}</strong>
-            <span>{modeNames[session.mode]} · 第 {session.position + 1} / {session.queueIds.length} 步（已掌握 {masteredUnique}/{totalUnique}）</span>
+            <span>
+              <b>{session.position + 1}/{session.queueIds.length}</b>
+              <em className="fs-prog-detail"> · 已掌握 {masteredUnique}/{totalUnique}</em>
+            </span>
           </div>
           <div className="fs-progress-track" aria-label="本轮进度">
             <span className="fs-prog-ok" style={{ width: `${masteredPct}%` }}/>
@@ -351,9 +367,10 @@ export function FlashcardStudio({
             className={"fs-ctrl-pill " + (audioPrefs.autoPlay ? "on" : "")}
             onClick={() => onUpdateAudioPrefs({ ...audioPrefs, autoPlay: !audioPrefs.autoPlay })}
             title="切换切词时是否自动朗读英文发音"
+            aria-label={audioPrefs.autoPlay ? "自动播音已开启" : "自动播音已关闭"}
           >
             {audioPrefs.autoPlay ? <Volume2 size={15}/> : <VolumeX size={15}/>}
-            <span>{audioPrefs.autoPlay ? "自动播音 开" : "自动播音 关"}</span>
+            <span className="fs-ctrl-label">{audioPrefs.autoPlay ? "播音 开" : "播音 关"}</span>
           </button>
           <button
             type="button"
@@ -368,76 +385,95 @@ export function FlashcardStudio({
               type="button"
               className={"fs-ctrl-pill " + (studyPrefs.instantKnow ? "on" : "")}
               onClick={() => onUpdateStudyPrefs({ ...studyPrefs, instantKnow: !studyPrefs.instantKnow })}
-              title="开启后点「认识」直接跳过核对进入下一词"
+              title="开启后点「认识」直接进入下一词"
+              aria-label={studyPrefs.instantKnow ? "闪电切词模式" : "核对释义模式"}
             >
               <Zap size={14}/>
-              <span>{studyPrefs.instantKnow ? "闪电切词" : "核对模式"}</span>
+              <span className="fs-ctrl-label">{studyPrefs.instantKnow ? "闪电" : "核对"}</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Vertically Balanced Middle Content Area */}
-      <div className="fs-stage-body" key={`${session.position}-${activeCard.entry.id}`}>
+      {/* Single-Screen Balanced Middle Stage (Zero Scroll Needed) */}
+      <div className={"fs-stage-body" + (reveal ? " revealed" : "")} key={`${session.position}-${activeCard.entry.id}`}>
         <div className="fs-card-tags">
           <span className="v-tag">{activeCard.category}</span>
           <span className="v-tag sky">{activeCard.source}</span>
           {activeCard.entry.fields.batch && (
             <span className="v-tag">Day {activeCard.entry.fields.batch} · P{activeCard.entry.fields.page}</span>
           )}
-          <span className="v-tag mint">{activeCard.entry.reviewed ? `阶段 S${activeCard.entry.stage}` : "新词"}</span>
-          {isRequeued && <span className="v-tag rose"><Flame size={12}/> 本轮重练</span>}
+          <span className="v-tag mint">{activeCard.entry.reviewed ? `S${activeCard.entry.stage}` : "新词"}</span>
+          {isRequeued && <span className="v-tag rose"><Flame size={11}/>重练</span>}
         </div>
 
         {/* RECOGNIZE MODE */}
         {session.mode === "recognize" && (
           <div className="fs-card-body">
-            <div className="fs-word-hero">
-              <h2 className="fs-term">{activeCard.term}</h2>
-              <div className="fs-audio-row">
-                {activeCard.pronunciation && <span className="fs-ipa">{activeCard.pronunciation}</span>}
-                <button
-                  type="button"
-                  className={"fs-speak-orb " + (speaking ? "playing" : "")}
-                  onClick={() => playText(activeCard.term)}
-                  aria-label="播放单词发音"
-                  title="播放发音 (快捷键 R)"
-                >
-                  <Volume2 size={19}/>
-                  <span>{speaking ? "朗读中…" : "听发音 (R)"}</span>
-                </button>
-              </div>
-              {audioNote && <p className="v-muted fs-audio-note">{audioNote}</p>}
-
-              {/* Always-Visible Contextual English Example on Front Card (No Chinese Spoiler!) */}
-              {!reveal && englishExample && (
-                <div className="fs-front-example">
-                  <div className="fs-front-ex-label"><BookText size={13}/>语境例句</div>
-                  <p className="fs-front-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
+            {!reveal ? (
+              <div className="fs-word-hero">
+                <h2 className="fs-term">{activeCard.term}</h2>
+                <div className="fs-audio-row">
+                  {activeCard.pronunciation && <span className="fs-ipa">{activeCard.pronunciation}</span>}
                   <button
                     type="button"
-                    className="fs-mini-speak"
-                    onClick={() => playText(englishExample)}
-                    title="朗读这句英文例句"
+                    className={"fs-speak-orb " + (speaking ? "playing" : "")}
+                    onClick={() => playText(activeCard.term)}
+                    aria-label="播放单词发音"
+                    title="播放发音 (快捷键 R)"
                   >
-                    <Volume2 size={13}/>朗读例句
+                    <Volume2 size={18}/>
+                    <span>{speaking ? "朗读中…" : "听发音"}</span>
                   </button>
                 </div>
-              )}
-            </div>
+                {audioNote && <p className="v-muted fs-audio-note">{audioNote}</p>}
 
-            {reveal && (
-              <div className={"fs-reveal-box " + (reveal === "check-know" ? "v-feedback-right" : reveal === "check-miss" ? "v-feedback-wrong" : "")}>
-                <div className="fs-reveal-head">
-                  <span className={"v-feedback-badge " + (reveal === "check-know" ? "right" : reveal === "check-miss" ? "wrong" : "shown")}>
-                    {reveal === "check-know" ? "✓ 认识 · 核对释义与例句" : reveal === "check-miss" ? "已安排稍后重练 · 先记住释义" : "释义与例句"}
-                  </span>
+                {/* Contextual English Example on Front Card (No Chinese Spoiler!) */}
+                {englishExample && (
+                  <div className="fs-front-example">
+                    <div className="fs-front-ex-head">
+                      <span className="fs-front-ex-label"><BookText size={13}/>语境例句</span>
+                      <button
+                        type="button"
+                        className="fs-mini-speak"
+                        onClick={() => playText(englishExample)}
+                        title="朗读这句英文例句"
+                      >
+                        <Volume2 size={13}/>读例句
+                      </button>
+                    </div>
+                    <p className="fs-front-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Unified Single-Screen Reveal Card: Word + Meaning + Example + 2x2 Look-Alikes */
+              <div className={"fs-unified-reveal " + (reveal === "check-know" ? "v-feedback-right" : reveal === "check-miss" ? "v-feedback-wrong" : "")}>
+                <div className="fs-unified-head">
+                  <div className="fs-unified-word">
+                    <div className="fs-unified-title-row">
+                      <h2 className="fs-term compact">{activeCard.term}</h2>
+                      <span className={"v-feedback-badge compact " + (reveal === "check-know" ? "right" : reveal === "check-miss" ? "wrong" : "shown")}>
+                        {reveal === "check-know" ? "✓ 认识" : reveal === "check-miss" ? "需重练" : "释义"}
+                      </span>
+                    </div>
+                    {activeCard.pronunciation && <span className="fs-ipa compact">{activeCard.pronunciation}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    className={"fs-speak-circle " + (speaking ? "playing" : "")}
+                    onClick={() => playText(activeCard.term)}
+                    aria-label="播放单词发音"
+                    title="播放发音 (R)"
+                  >
+                    <Volume2 size={18}/>
+                  </button>
                 </div>
 
-                <p className="fs-meaning">{activeCard.meaning}</p>
+                <p className="fs-meaning compact">{activeCard.meaning}</p>
 
                 {(englishExample || exampleParts.chinese || exampleParts.note) && (
-                  <div className="fs-example-card">
+                  <div className="fs-example-card compact">
                     <div className="fs-example-content">
                       {englishExample && (
                         <p className="fs-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
@@ -446,19 +482,25 @@ export function FlashcardStudio({
                       {exampleParts.note && <p className="fs-ex-note">{exampleParts.note}</p>}
                     </div>
                     {englishExample && (
-                      <button type="button" className="fs-mini-speak" onClick={() => playText(englishExample)}>
-                        <Volume2 size={14}/>读例句
+                      <button
+                        type="button"
+                        className="fs-ex-speak-icon"
+                        onClick={() => playText(englishExample)}
+                        aria-label="朗读例句"
+                        title="朗读例句"
+                      >
+                        <Volume2 size={15}/>
                       </button>
                     )}
                   </div>
                 )}
 
                 {lookAlikes.length > 0 && (
-                  <div className="fs-lookalike-box">
+                  <div className="fs-lookalike-box compact">
                     <div className="fs-lookalike-head">
-                      <GitCompareArrows size={14}/>
-                      <strong>形近易混词对比</strong>
-                      <span>点击可听发音</span>
+                      <GitCompareArrows size={13}/>
+                      <strong>形近易混词</strong>
+                      <span>点词听发音</span>
                     </div>
                     <div className="fs-lookalike-grid">
                       {lookAlikes.map(peer => (
@@ -481,7 +523,7 @@ export function FlashcardStudio({
                 )}
 
                 {activeCard.entry.fields.previousSpelling && (
-                  <p className="v-muted">曾易错拼写：<strong>{activeCard.entry.fields.previousSpelling}</strong></p>
+                  <p className="v-muted fs-prev-spell">曾易错拼写：<strong>{activeCard.entry.fields.previousSpelling}</strong></p>
                 )}
               </div>
             )}
@@ -491,110 +533,110 @@ export function FlashcardStudio({
         {/* SPELLING & RECALL MODES */}
         {session.mode !== "recognize" && (
           <div className="fs-card-body">
-            {session.mode === "spelling" ? (
-              <div className="fs-word-hero">
-                <button
-                  type="button"
-                  className={"fs-speak-orb large " + (speaking ? "playing" : "")}
-                  onClick={() => playText(activeCard.term)}
+            {!reveal ? (
+              <>
+                {session.mode === "spelling" ? (
+                  <div className="fs-word-hero">
+                    <button
+                      type="button"
+                      className={"fs-speak-orb large " + (speaking ? "playing" : "")}
+                      onClick={() => playText(activeCard.term)}
+                    >
+                      <Volume2 size={22}/>
+                      <span>{speaking ? "正在朗读…" : "重播发音 (R)"}</span>
+                    </button>
+                    <p className="fs-spell-cue">听发音写出完整英文{!letterHint ? "，想不起可点提示" : ""}</p>
+                    {audioNote && <p className="v-muted fs-audio-note">{audioNote}</p>}
+                    {!letterHint ? (
+                      <button type="button" className="fs-hint-link" onClick={() => setLetterHint(true)}>
+                        <Lightbulb size={14}/>显示首字母与中文提示
+                      </button>
+                    ) : (
+                      <div className="fs-letter-hint">
+                        <strong>{activeCard.term.split("/")[0].trim().replace(/[a-z]+/gi, w => w[0] + "·".repeat(w.length - 1))}</strong>
+                        <p>{activeCard.meaning.replace(/\n+/g, " · ")}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="fs-word-hero">
+                    <p className="fs-recall-meaning">{activeCard.meaning}</p>
+                    {exampleParts.chinese && (
+                      <p className="fs-recall-ex-zh">例句提示：{exampleParts.chinese}</p>
+                    )}
+                    {!letterHint ? (
+                      <button type="button" className="fs-hint-link" onClick={() => setLetterHint(true)}>
+                        <Lightbulb size={14}/>显示首字母提示
+                      </button>
+                    ) : (
+                      <div className="fs-letter-hint">
+                        <strong>{activeCard.term.split("/")[0].trim().replace(/[a-z]+/gi, w => w[0] + "·".repeat(w.length - 1))}</strong>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <form
+                  id="fs-spell-form"
+                  className="fs-input-form"
+                  onSubmit={e => {
+                    e.preventDefault();
+                    handleCheckSpelling();
+                  }}
                 >
-                  <Volume2 size={24}/>
-                  <span>{speaking ? "正在朗读…" : "重播发音 (R)"}</span>
-                </button>
-                <p className="fs-spell-cue">听发音写出完整英文{!reveal && !letterHint ? "，想不起可点提示" : ""}</p>
-                {audioNote && <p className="v-muted fs-audio-note">{audioNote}</p>}
-                {!reveal && !letterHint && (
-                  <button type="button" className="fs-hint-link" onClick={() => setLetterHint(true)}>
-                    <Lightbulb size={14}/>显示首字母与中文提示
-                  </button>
-                )}
-                {!reveal && letterHint && (
-                  <div className="fs-letter-hint">
-                    <strong>{activeCard.term.split("/")[0].trim().replace(/[a-z]+/gi, w => w[0] + "·".repeat(w.length - 1))}</strong>
-                    <p>{activeCard.meaning.replace(/\n+/g, " · ")}</p>
-                  </div>
-                )}
-              </div>
+                  <input
+                    key={activeCard.entry.id}
+                    id="fs-spell-input"
+                    autoFocus
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    placeholder="输入完整英文单词或短语，按 Enter 检查…"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                  />
+                </form>
+              </>
             ) : (
-              <div className="fs-word-hero">
-                <p className="fs-recall-meaning">{activeCard.meaning}</p>
-                {!reveal && exampleParts.chinese && (
-                  <p className="fs-recall-ex-zh">例句提示：{exampleParts.chinese}</p>
-                )}
-                {!reveal && !letterHint && (
-                  <button type="button" className="fs-hint-link" onClick={() => setLetterHint(true)}>
-                    <Lightbulb size={14}/>显示首字母提示
-                  </button>
-                )}
-                {!reveal && letterHint && (
-                  <div className="fs-letter-hint">
-                    <strong>{activeCard.term.split("/")[0].trim().replace(/[a-z]+/gi, w => w[0] + "·".repeat(w.length - 1))}</strong>
+              <div className={"fs-unified-reveal " + (reveal === "right" ? "v-feedback-right" : "v-feedback-wrong")}>
+                <div className="fs-unified-head">
+                  <div className="fs-unified-word">
+                    <div className="fs-unified-title-row">
+                      <span className={"v-feedback-badge compact " + reveal}>
+                        {reveal === "right" ? "✓ 拼写正确" : "拼写有误 · 稍后重练"}
+                      </span>
+                    </div>
+                    {reveal === "wrong" && input.trim() ? (
+                      <div className="fs-diff-inline">
+                        <strong className="fs-diff-letters">
+                          {spellingDiff(activeCard.term, input).map((tok, i) => (
+                            <i key={i} className={tok.status}>{tok.char}</i>
+                          ))}
+                        </strong>
+                        <code className="fs-user-typed">{input}</code>
+                      </div>
+                    ) : (
+                      <div className="fs-unified-title-row">
+                        <h2 className="fs-term compact">{activeCard.term}</h2>
+                        {activeCard.pronunciation && <span className="fs-ipa compact">{activeCard.pronunciation}</span>}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )}
-
-            {!reveal && (
-              <form
-                id="fs-spell-form"
-                className="fs-input-form"
-                onSubmit={e => {
-                  e.preventDefault();
-                  handleCheckSpelling();
-                }}
-              >
-                <input
-                  key={activeCard.entry.id}
-                  id="fs-spell-input"
-                  autoFocus
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  placeholder="输入完整英文单词或短语，按 Enter 检查…"
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                />
-              </form>
-            )}
-
-            {(reveal === "right" || reveal === "wrong") && (
-              <div className={"fs-reveal-box " + (reveal === "right" ? "v-feedback-right" : "v-feedback-wrong")}>
-                <div className="fs-reveal-head">
-                  <span className={"v-feedback-badge " + reveal}>
-                    {reveal === "right" ? "✓ 拼写完全正确！" : "拼写有误 · 已加入本轮稍后重练"}
-                  </span>
-                  <button type="button" className="fs-mini-speak" onClick={() => playText(activeCard.term)}>
-                    <Volume2 size={15}/>朗读 (R)
+                  <button
+                    type="button"
+                    className={"fs-speak-circle " + (speaking ? "playing" : "")}
+                    onClick={() => playText(activeCard.term)}
+                    aria-label="播放单词发音"
+                  >
+                    <Volume2 size={18}/>
                   </button>
                 </div>
 
-                {reveal === "wrong" && input.trim() ? (
-                  <div className="fs-diff-box">
-                    <div className="fs-diff-row">
-                      <span>正确拼写</span>
-                      <strong className="fs-diff-letters">
-                        {spellingDiff(activeCard.term, input).map((tok, i) => (
-                          <i key={i} className={tok.status}>{tok.char}</i>
-                        ))}
-                      </strong>
-                    </div>
-                    <div className="fs-diff-row">
-                      <span>你的输入</span>
-                      <code className="fs-user-typed">{input}</code>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="fs-term small">
-                    {activeCard.term}
-                    {activeCard.pronunciation && <span className="fs-ipa">{activeCard.pronunciation}</span>}
-                  </p>
-                )}
-
-                <p className="fs-meaning">{activeCard.meaning}</p>
+                <p className="fs-meaning compact">{activeCard.meaning}</p>
 
                 {(englishExample || exampleParts.chinese || exampleParts.note) && (
-                  <div className="fs-example-card">
+                  <div className="fs-example-card compact">
                     <div className="fs-example-content">
                       {englishExample && (
                         <p className="fs-ex-en">{highlightTermInSentence(englishExample, activeCard.term)}</p>
@@ -603,19 +645,24 @@ export function FlashcardStudio({
                       {exampleParts.note && <p className="fs-ex-note">{exampleParts.note}</p>}
                     </div>
                     {englishExample && (
-                      <button type="button" className="fs-mini-speak" onClick={() => playText(englishExample)}>
-                        <Volume2 size={14}/>读例句
+                      <button
+                        type="button"
+                        className="fs-ex-speak-icon"
+                        onClick={() => playText(englishExample)}
+                        aria-label="朗读例句"
+                      >
+                        <Volume2 size={15}/>
                       </button>
                     )}
                   </div>
                 )}
 
                 {lookAlikes.length > 0 && (
-                  <div className="fs-lookalike-box">
+                  <div className="fs-lookalike-box compact">
                     <div className="fs-lookalike-head">
-                      <GitCompareArrows size={14}/>
-                      <strong>形近易混词对比</strong>
-                      <span>点击可听发音</span>
+                      <GitCompareArrows size={13}/>
+                      <strong>形近易混词</strong>
+                      <span>点词听发音</span>
                     </div>
                     <div className="fs-lookalike-grid">
                       {lookAlikes.map(peer => (
@@ -641,16 +688,10 @@ export function FlashcardStudio({
         )}
       </div>
 
-      {/* Bottom-Anchored Thumb Action Dock */}
+      {/* Bottom-Anchored Thumb Dock: Left = 认识 | Center = 看释义/朗读 | Right = 不认识 */}
       <div className="fs-bottom-dock">
         {session.mode === "recognize" && !reveal && (
           <div className="fs-thumb-bar three">
-            <button type="button" className="fs-btn-miss" disabled={busy} onClick={() => setReveal("check-miss")}>
-              不认识 <kbd>1</kbd>
-            </button>
-            <button type="button" className="fs-btn-mid" disabled={busy} onClick={() => setReveal("shown")}>
-              <Eye size={16}/>看释义 <kbd>Space</kbd>
-            </button>
             <button
               type="button"
               className="fs-btn-know"
@@ -660,48 +701,74 @@ export function FlashcardStudio({
                 else setReveal("check-know");
               }}
             >
-              <Check size={17}/>认识 <kbd>2</kbd>
+              <Check size={17}/><span>认识</span><kbd>1</kbd>
+            </button>
+            <button type="button" className="fs-btn-mid" disabled={busy} onClick={() => setReveal("shown")}>
+              <Eye size={16}/><span>看释义</span><kbd>Space</kbd>
+            </button>
+            <button type="button" className="fs-btn-miss" disabled={busy} onClick={() => setReveal("check-miss")}>
+              <X size={16}/><span>不认识</span><kbd>2</kbd>
             </button>
           </div>
         )}
 
         {session.mode === "recognize" && reveal && (
-          <div className="fs-thumb-bar two">
-            {reveal === "check-miss" ? (
-              <>
-                <button type="button" className="fs-btn-mid" disabled={busy} onClick={() => void commitAndAdvance(true)}>
-                  其实记住了
-                </button>
-                <button type="button" className="fs-btn-miss solid" autoFocus disabled={busy} onClick={() => void commitAndAdvance(false)}>
-                  {busy ? "保存中…" : "记入本轮重练 · 下一词 (Enter)"}
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" className="fs-btn-miss" disabled={busy} onClick={() => void commitAndAdvance(false)}>
-                  {reveal === "check-know" ? "其实记错了 (1)" : "没记牢 · 稍后再练 (1)"}
-                </button>
-                <button type="button" className="fs-btn-know" autoFocus disabled={busy} onClick={() => void commitAndAdvance(true)}>
-                  {busy ? "保存中…" : "记住了 · 下一词 (Enter)"}
-                </button>
-              </>
-            )}
+          <div className="fs-thumb-bar three">
+            <button
+              type="button"
+              className="fs-btn-know"
+              autoFocus={reveal !== "check-miss"}
+              disabled={busy}
+              onClick={() => void commitAndAdvance(true)}
+            >
+              <Check size={17}/>
+              <span>{busy ? "保存…" : reveal === "check-miss" ? "其实认识" : "记住了"}</span>
+              <kbd>1</kbd>
+            </button>
+            <button
+              type="button"
+              className="fs-btn-mid"
+              onClick={() => playText(activeCard.term)}
+              title="再听一遍发音 (R)"
+            >
+              <Volume2 size={16}/>
+              <span>朗读</span>
+              <kbd>R</kbd>
+            </button>
+            <button
+              type="button"
+              className={"fs-btn-miss " + (reveal === "check-miss" ? "solid" : "")}
+              autoFocus={reveal === "check-miss"}
+              disabled={busy}
+              onClick={() => void commitAndAdvance(false)}
+            >
+              <RotateCcw size={15}/>
+              <span>{busy ? "保存…" : reveal === "check-miss" ? "不认识·重练" : "没记牢"}</span>
+              <kbd>2</kbd>
+            </button>
           </div>
         )}
 
         {session.mode !== "recognize" && !reveal && (
           <div className="fs-thumb-bar two">
-            <button type="button" className="fs-btn-miss" onClick={handleGiveUpSpelling}>
-              想不起来 · 看答案
-            </button>
             <button type="submit" form="fs-spell-form" className="fs-btn-know" disabled={!input.trim()}>
-              <Check size={18}/>检查答案 (Enter)
+              <Check size={17}/><span>检查答案</span><kbd>Enter</kbd>
+            </button>
+            <button type="button" className="fs-btn-miss" onClick={handleGiveUpSpelling}>
+              <Eye size={16}/><span>看答案</span>
             </button>
           </div>
         )}
 
         {session.mode !== "recognize" && (reveal === "right" || reveal === "wrong") && (
-          <div className="fs-thumb-bar one">
+          <div className="fs-thumb-bar two">
+            <button
+              type="button"
+              className="fs-btn-mid"
+              onClick={() => playText(activeCard.term)}
+            >
+              <Volume2 size={16}/><span>再听发音</span>
+            </button>
             <button
               type="button"
               className={reveal === "right" ? "fs-btn-know" : "fs-btn-miss solid"}
@@ -709,7 +776,8 @@ export function FlashcardStudio({
               disabled={busy}
               onClick={() => void commitAndAdvance(reveal === "right")}
             >
-              {busy ? "保存中…" : reveal === "right" ? "太棒了 · 下一词 (Enter)" : "记入本轮重练 · 下一词 (Enter)"}
+              <span>{busy ? "保存中…" : reveal === "right" ? "下一词" : "重练 · 下一词"}</span>
+              <kbd>Enter</kbd>
             </button>
           </div>
         )}

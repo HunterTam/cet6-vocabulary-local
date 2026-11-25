@@ -7,9 +7,9 @@ import { parseReadingDoc, readingVocabulary, extraStudyVocabulary, type ParsedIm
 const storageKey = "cet6-vocabulary-local-v1";
 const driveKey = "cet6-vocabulary-drive-v1";
 type Action = "pass" | "again" | "save";
-let basePromise: Promise<Map<string,Entry>> | undefined;
+let baseCache: Map<string,Entry> | undefined;
 
-function sha256Fallback(text: string): string {
+function sha256Hex(text: string): string {
   const bytes = new TextEncoder().encode(text);
   const K = [
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -54,29 +54,30 @@ function sha256Fallback(text: string): string {
   return H.map(n => n.toString(16).padStart(8, "0")).join("");
 }
 
-async function sourceId(key:string) {
-  if (globalThis.crypto?.subtle) {
-    const bytes = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(key));
-    return "sync-"+Array.from(new Uint8Array(bytes),n=>n.toString(16).padStart(2,"0")).join("").slice(0,40);
-  }
-  return "sync-"+sha256Fallback(key).slice(0,40);
+function sourceIdSync(key:string) {
+  return "sync-"+sha256Hex(key).slice(0,40);
 }
 
-async function localBase() {
+async function sourceId(key:string) {
+  return sourceIdSync(key);
+}
+
+function localBaseSync(): Map<string,Entry> {
+  if (baseCache) return baseCache;
   const base = new Map([...seed,...listeningSeed].map(entry=>[entry.id,entry]));
-  const notes = await Promise.all([...dailyVocabulary(),...readingVocabulary()].map(async ({key,kind,fields}):Promise<Entry>=>{
-    const id = await sourceId(key);
-    return {id,kind,fields,source:{key,fields},version:0,history:[],stage:0,due:"",reviewed:""};
-  }));
-  for (const note of notes) base.set(note.id,note);
-  const extras = await Promise.all(extraStudyVocabulary().map(async ({id:fixedId,key,kind,fields}):Promise<Entry>=>{
-    const id = fixedId ?? await sourceId(key!);
-    return {id,kind,fields,...(key ? {source:{key,fields}} : {}),version:0,history:[],stage:0,due:"",reviewed:""};
-  }));
-  for (const extra of extras) base.set(extra.id,extra);
+  for (const {key,kind,fields} of [...dailyVocabulary(),...readingVocabulary()]) {
+    const id = sourceIdSync(key);
+    base.set(id,{id,kind,fields,source:{key,fields},version:0,history:[],stage:0,due:"",reviewed:""});
+  }
+  for (const {id:fixedId,key,kind,fields} of extraStudyVocabulary()) {
+    const id = fixedId ?? sourceIdSync(key!);
+    base.set(id,{id,kind,fields,...(key ? {source:{key,fields}} : {}),version:0,history:[],stage:0,due:"",reviewed:""});
+  }
+  baseCache = base;
   return base;
 }
-const loadBase = () => basePromise ??= localBase();
+
+const loadBase = async () => localBaseSync();
 const readLocal = (): Entry[] => JSON.parse(localStorage.getItem(storageKey) || "[]");
 const writeLocal = (records: Iterable<Entry>) => localStorage.setItem(storageKey,JSON.stringify([...records]));
 const validDate = (value:unknown) => typeof value === "string" && (value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value));
@@ -164,8 +165,8 @@ export async function mergeReadingDriveDoc(text:string) {
   return changed;
 }
 
-async function resolvedRecords() {
-  const records = new Map(await loadBase());
+function resolvedRecordsSync() {
+  const records = new Map(localBaseSync());
   const cloud = JSON.parse(localStorage.getItem(driveKey)||"[]") as Entry[];
   for (const record of readLocal()) {
     const previous = records.get(record.id);
@@ -177,8 +178,16 @@ async function resolvedRecords() {
   return records;
 }
 
+async function resolvedRecords() {
+  return resolvedRecordsSync();
+}
+
+export function listRecordsSync() {
+  return [...resolvedRecordsSync().values()];
+}
+
 export async function listRecords() {
-  return [...(await resolvedRecords()).values()];
+  return listRecordsSync();
 }
 
 export async function saveRecord(input:Entry, action:Action, fields?:Entry["fields"]) {

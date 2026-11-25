@@ -1,4 +1,4 @@
-const CACHE_NAME = "cet6-pwa-v4";
+const CACHE_NAME = "cet6-pwa-v5";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", event => {
@@ -23,21 +23,29 @@ self.addEventListener("fetch", event => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
 
-  // Network-first for HTML navigations so fresh deploys arrive promptly, cache fallback offline.
+  // Stale-while-revalidate for BOTH HTML navigations and assets so iPhone PWA opens instantaneously from cache
+  // while quietly fetching any fresh GitHub Pages deployment in the background.
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
-        .then(response => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, copy)).catch(() => undefined);
-          return response;
-        })
-        .catch(() => caches.match(request).then(hit => hit || caches.match("./index.html")))
+      caches.match("./index.html").then(cached => {
+        const fresh = fetch(request)
+          .then(response => {
+            if (response.ok) {
+              const copy = response.clone();
+              caches.open(CACHE_NAME).then(cache => {
+                cache.put(request, copy.clone());
+                cache.put("./index.html", copy);
+              }).catch(() => undefined);
+            }
+            return response;
+          })
+          .catch(() => cached);
+        return cached || fresh;
+      })
     );
     return;
   }
 
-  // Stale-while-revalidate for static assets.
   event.respondWith(
     caches.match(request).then(cached => {
       const fresh = fetch(request)

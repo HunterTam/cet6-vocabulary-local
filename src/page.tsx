@@ -7,7 +7,7 @@ import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, study
 import { dailyBatches } from "./daily-vocabulary";
 import { readingDocUrl, type ParsedImportCard } from "./reading-vocabulary";
 import { ReviewCurve } from "./review-curve";
-import { importGptNotes, importRecords, listRecords, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
+import { importGptNotes, importRecords, listRecords, listRecordsSync, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
 import { clearGistConfig, readGistConfig, syncWithGist, type GistConfig } from "./cloud-sync";
 import { ListeningReview } from "./listening-review";
 import { FlashcardStudio } from "./flashcard-studio";
@@ -98,9 +98,18 @@ function formatCnDate(iso: string) {
   return y && m && d ? `${y} 年 ${Number(m)} 月 ${Number(d)} 日` : iso;
 }
 
+function readInitialSnapshot(): { entries: Entry[]; ready: boolean } {
+  try {
+    return { entries: listRecordsSync(), ready: true };
+  } catch {
+    return { entries: [], ready: false };
+  }
+}
+
 export default function VocabularyDesk() {
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [ready, setReady] = useState(false);
+  const [initialSnapshot] = useState(readInitialSnapshot);
+  const [entries, setEntries] = useState<Entry[]>(initialSnapshot.entries);
+  const [ready, setReady] = useState(initialSnapshot.ready);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
@@ -248,7 +257,7 @@ export default function VocabularyDesk() {
   }
 
   useEffect(() => {
-    void load();
+    if (!initialSnapshot.ready) void load();
     const savedGist = readGistConfig();
     if (savedGist) void runGistSync(savedGist, true);
     const onVisible = () => {
@@ -676,7 +685,7 @@ export default function VocabularyDesk() {
     library: String(cards.length),
   } : {};
 
-  return <div className="vocab shell">
+  return <div className={"vocab shell" + (activeSession ? " studying" : "")}>
     <aside className="sidebar">
       <button className="brand" onClick={()=>navigate("review")} disabled={busy} aria-label="返回单词复盘">
         <span className="brand-icon"><BookOpen size={21}/></span>
@@ -1115,8 +1124,8 @@ export default function VocabularyDesk() {
         {view==="curve" && <>
           <div className="v-heading">
             <div>
-              <h1>记忆曲线与遗忘预警</h1>
-              <p className="v-muted">追踪每条词句的实时记忆保持率、预测未来 7 天复习负荷，直接抢救即将遗忘的词条。</p>
+              <h1>记忆曲线与逐词遗忘分析</h1>
+              <p className="v-muted">分析每一个词的遗忘程度、历史正确率与临界倒计时，实时追踪艾宾浩斯曲线并一键抢救。</p>
             </div>
           </div>
           {ready && (
