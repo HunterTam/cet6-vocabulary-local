@@ -114,23 +114,20 @@ function normalizeSession(parsed: Partial<SavedSession> | null | undefined): Sav
     !parsed ||
     typeof parsed.deckId !== "string" ||
     typeof parsed.deckLabel !== "string" ||
+    !["new", "review", "mix", "free"].includes(parsed.studyKind || "") ||
     !["spelling", "recognize", "recall"].includes(parsed.mode || "") ||
     !Array.isArray(parsed.queueIds) ||
     !parsed.queueIds.length ||
     typeof parsed.position !== "number" ||
-    parsed.position < 0 ||
+    parsed.position <= 0 ||
     parsed.position >= parsed.queueIds.length
   ) {
     return null;
   }
-  const studyKind: StudyKind =
-    parsed.studyKind === "new" || parsed.studyKind === "review" || parsed.studyKind === "mix" || parsed.studyKind === "free"
-      ? parsed.studyKind
-      : "mix";
   return {
     deckId: parsed.deckId,
     deckLabel: parsed.deckLabel,
-    studyKind,
+    studyKind: parsed.studyKind as StudyKind,
     mode: parsed.mode as Mode,
     queueIds: parsed.queueIds,
     position: parsed.position,
@@ -159,15 +156,8 @@ export function readAllSavedSessions(): Record<string, SavedSession> {
         if (clean) result[k] = clean;
       }
     }
-    // Migrate legacy single-slot session gracefully if present
-    const legacy = localStorage.getItem(legacySessionKey);
-    if (legacy) {
-      const clean = normalizeSession(JSON.parse(legacy) as Partial<SavedSession>);
-      if (clean) {
-        const key = sessionSlotKey(clean.deckId, clean.studyKind);
-        if (!result[key]) result[key] = clean;
-      }
-    }
+    // Remove obsolete pre-v2 legacy session slot so old mixed (1/79) checkpoints never confuse users
+    localStorage.removeItem(legacySessionKey);
   } catch {}
   return result;
 }
@@ -185,18 +175,16 @@ export function readSavedSession(deckId?: string, studyKind?: StudyKind): SavedS
 export function writeSavedSession(session: SavedSession | null, clearSlot?: { deckId: string; studyKind: StudyKind }) {
   try {
     const all = readAllSavedSessions();
-    if (!session || session.position >= session.queueIds.length) {
+    if (!session || session.position <= 0 || session.position >= session.queueIds.length) {
       const slot = clearSlot
         ? sessionSlotKey(clearSlot.deckId, clearSlot.studyKind)
         : session
           ? sessionSlotKey(session.deckId, session.studyKind)
           : "";
       if (slot) delete all[slot];
-      localStorage.removeItem(legacySessionKey);
     } else {
       const stamp = { ...session, updatedAt: new Date().toISOString() };
       all[sessionSlotKey(stamp.deckId, stamp.studyKind)] = stamp;
-      localStorage.setItem(legacySessionKey, JSON.stringify(stamp));
     }
     setMirroredItem(deckSessionsKey, JSON.stringify(all));
   } catch {}

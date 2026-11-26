@@ -164,6 +164,37 @@ export function SyncSettingsModal({
               : "在 iPhone Safari 点「分享 → 添加到主屏幕」即可像原生 App 一样全屏使用。"}
           </p>
         </div>
+
+        <div className="sync-modal-section">
+          <div className="v-sync-head">
+            <h3>应用版本与离线缓存</h3>
+            <span className="v-tag mint">v2.8 · 新词/复习分离版</span>
+          </div>
+          <p className="v-muted">
+            点击下方按钮仅刷新应用外壳缓存，不会删除任何本机背词进度。
+          </p>
+          <div className="v-actions">
+            <button
+              type="button"
+              className="v-secondary rc-mini-btn"
+              onClick={async () => {
+                try {
+                  if ("caches" in window) {
+                    const keys = await caches.keys();
+                    await Promise.all(keys.map(k => caches.delete(k)));
+                  }
+                  if ("serviceWorker" in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map(r => r.unregister()));
+                  }
+                } catch {}
+                window.location.reload();
+              }}
+            >
+              <RefreshCw size={14}/>检查并强制刷新到最新版
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
