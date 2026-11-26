@@ -2670,6 +2670,438 @@ details[open] .v-chevron-pill {
   transform: translateY(-1px);
 }
 
+/* Native iOS Vocab App Home Layout (不背单词 / 墨墨背单词 Architecture) */
+.ios-book-card {
+  padding: 14px 15px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 26px rgba(105, 84, 162, 0.08), inset 0 1px 0 #ffffff;
+  display: grid;
+  gap: 11px;
+}
+
+.ios-book-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ios-book-cover {
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #f3e8ff 0%, #ffe8d6 100%);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  display: grid;
+  place-items: center;
+  flex: none;
+  box-shadow: 0 6px 14px rgba(124, 93, 250, 0.12);
+}
+
+.ios-book-cover img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.ios-book-meta {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ios-book-meta strong {
+  font-size: 1.08rem;
+  font-weight: 820;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ios-book-meta span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ios-book-switch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 4px 10px 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 93, 250, 0.24);
+  background: rgba(244, 240, 255, 0.9);
+  color: var(--accent-deep);
+  font-size: 12.5px;
+  font-weight: 740;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.ios-book-switch:active {
+  transform: scale(0.95);
+}
+
+.ios-book-prog-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ios-book-detail-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  color: var(--accent-deep);
+  font-size: 12px;
+  font-weight: 740;
+  white-space: nowrap;
+}
+
+.ios-home-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 10px 0;
+}
+
+.ios-today-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  font-size: 12.5px;
+  color: #5b5378;
+  box-shadow: 0 4px 12px rgba(105, 84, 162, 0.05);
+}
+
+.ios-today-pill b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ios-today-pill i {
+  font-style: normal;
+  opacity: 0.4;
+}
+
+.ios-focus-pair {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.ios-focus-divider {
+  width: 1px;
+  height: 52px;
+  background: rgba(142, 132, 188, 0.24);
+}
+
+.ios-focus-metric {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.ios-focus-metric strong {
+  font-size: clamp(2.85rem, 11vw, 3.8rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ios-focus-metric.new strong {
+  background: linear-gradient(135deg, #7c5dfa 0%, #5b3df5 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.ios-focus-metric.due strong {
+  background: linear-gradient(135deg, #20a472 0%, #0d8258 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.ios-focus-metric span {
+  font-size: 13px;
+  font-weight: 700;
+  color: #5b5378;
+}
+
+.ios-prefs-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 132, 188, 0.2);
+  background: rgba(255, 255, 255, 0.72);
+  color: #524a70;
+  font-size: 12px;
+  font-weight: 660;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.ios-prefs-trigger span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ios-prefs-trigger:hover {
+  background: #ffffff;
+}
+
+.ios-home-dock {
+  display: grid;
+  gap: 11px;
+}
+
+.ios-home-quickbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ios-quick-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 132, 188, 0.22);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 700;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.ios-quick-pill.accent {
+  border-color: rgba(124, 93, 250, 0.34);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+.ios-quick-pill:active {
+  transform: scale(0.96);
+}
+
+/* Native iOS Bottom Sheet Controls */
+.ios-sheet-handle {
+  width: 38px;
+  height: 4.5px;
+  border-radius: 999px;
+  background: rgba(142, 132, 188, 0.32);
+  margin: -4px auto 4px;
+}
+
+.ios-setting-group {
+  display: grid;
+  gap: 8px;
+}
+
+.ios-setting-label {
+  font-size: 12px;
+  font-weight: 760;
+  color: var(--muted);
+  padding-left: 2px;
+}
+
+.ios-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ios-mode-card {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 12px 6px;
+  border-radius: 16px;
+  border: 1.5px solid rgba(142, 132, 188, 0.18);
+  background: rgba(248, 246, 255, 0.72);
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.ios-mode-card.active {
+  border-color: var(--accent);
+  background: linear-gradient(155deg, #f2edff, #ffffff);
+  box-shadow: 0 6px 16px rgba(124, 93, 250, 0.14);
+}
+
+.ios-mode-ico {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: #ffffff;
+  color: var(--accent-deep);
+  display: grid;
+  place-items: center;
+}
+
+.ios-mode-card strong {
+  font-size: 13px;
+  font-weight: 780;
+  color: var(--ink);
+}
+
+.ios-mode-card small {
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.ios-seg-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(142, 132, 188, 0.12);
+}
+
+.ios-seg-row button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 720;
+  padding: 4px 2px;
+}
+
+.ios-seg-row button.active {
+  background: #ffffff;
+  color: var(--accent-deep);
+  box-shadow: 0 3px 10px rgba(111, 78, 246, 0.14);
+}
+
+.ios-setting-list {
+  border-radius: 18px;
+  background: rgba(248, 246, 255, 0.78);
+  border: 1px solid rgba(142, 132, 188, 0.14);
+  overflow: hidden;
+}
+
+.ios-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.ios-switch-row + .ios-switch-row {
+  border-top: 0.5px solid rgba(142, 132, 188, 0.16);
+}
+
+.ios-switch-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--accent-deep);
+}
+
+.ios-switch-copy strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 740;
+  color: var(--ink);
+}
+
+.ios-switch-copy small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ios-switch {
+  flex: none;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  border: 0;
+  padding: 2px;
+  background: rgba(142, 132, 188, 0.32);
+  display: flex;
+  align-items: center;
+  transition: background 200ms ease;
+}
+
+.ios-switch i {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ios-switch.on {
+  background: #20a472;
+}
+
+.ios-switch.on i {
+  transform: translateX(20px);
+}
+
+.ios-sheet-done {
+  width: 100%;
+  min-height: 46px;
+}
+
+.deck-sheet-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.deck-sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 0.5px solid rgba(142, 132, 188, 0.16);
+}
+
+@keyframes ios-sheet-up {
+  from { opacity: 0.4; transform: translate3d(0, 48px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
 /* Mainstream Vocab App Home Study Hub (不背单词 / 墨墨 Style Dual Learn + Review) */
 .home-deck-title-row {
   display: flex;
@@ -3410,8 +3842,10 @@ details[open] .v-chevron-pill {
     grid-template-columns: minmax(0, 1fr);
     min-height: auto;
   }
-  .home-start-card,
   .home-deck-panel {
+    display: none;
+  }
+  .home-start-card {
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
@@ -5521,14 +5955,25 @@ details[open] .v-chevron-pill {
   .fs-thumb-bar kbd {
     display: none;
   }
-  /* Single-Screen Zero-Scroll Flashcard Studio on iPhone */
+  /* Full-Bleed Edge-to-Edge Native iOS Flashcard Studio (Zero Box-in-Box Frame!) */
   .fs-shell {
-    height: calc(100dvh - 14px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    height: 100dvh;
+    width: 100%;
+    max-width: none;
     max-height: none;
     min-height: 0;
-    padding: 11px 12px 10px;
-    border-radius: 22px;
-    gap: 8px;
+    padding: max(10px, env(safe-area-inset-top)) 14px max(12px, env(safe-area-inset-bottom));
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    gap: 10px;
+  }
+  .fs-shell.fs-complete {
+    min-height: 100dvh;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
   }
   .fs-topbar {
     flex-wrap: nowrap;
@@ -5694,10 +6139,41 @@ details[open] .v-chevron-pill {
   .home-split {
     gap: 14px;
   }
+  /* Native One-Screen iPhone Home Layout (Zero Scrolling, No Nested Boxes!) */
   .home-start-card {
-    padding: 16px 15px;
+    min-height: calc(100dvh - 134px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    padding: 4px 2px 6px;
+    border-radius: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .home-cta-learn,
+  .home-cta-review {
+    min-height: 76px;
+    padding: 12px 10px;
     border-radius: 22px;
-    gap: 14px;
+    gap: 4px;
+  }
+  .home-cta-top {
+    font-size: 16px;
+  }
+  .ios-focus-metric strong {
+    font-size: 3.25rem;
+  }
+  .modal-backdrop {
+    padding: 0;
+    align-items: end;
+  }
+  .modal-sheet {
+    width: 100%;
+    padding: 14px 16px max(20px, env(safe-area-inset-bottom));
+    border-radius: 26px 26px 0 0;
+    border-bottom: 0;
+    max-height: 88dvh;
+    animation: ios-sheet-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .home-start-mascot {
     width: 46px;
@@ -5720,15 +6196,6 @@ details[open] .v-chevron-pill {
   }
   .home-trio-cell strong {
     font-size: 1.35rem;
-  }
-  .home-cta-learn,
-  .home-cta-review {
-    min-height: 60px;
-    padding: 9px 8px;
-    border-radius: 17px;
-  }
-  .home-cta-top {
-    font-size: 14.5px;
   }
   .dpm-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5821,7 +6288,7 @@ details[open] .v-chevron-pill {
   .rc-day-col small {
     font-size: 10px;
   }
-  /* Library & Modals on iPhone */
+  /* Library on iPhone */
   .v-filters {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5830,15 +6297,6 @@ details[open] .v-chevron-pill {
   .v-filters .v-search {
     grid-column: 1 / -1;
     width: 100%;
-  }
-  .modal-backdrop {
-    padding: 10px;
-    align-items: end;
-  }
-  .modal-sheet {
-    padding: 18px 16px max(18px, env(safe-area-inset-bottom));
-    border-radius: 24px;
-    max-height: 86dvh;
   }
 }
 
@@ -5945,6 +6403,7 @@ details[open] > .v-card-content {
   .v-feedback-wrong,
   .fs-pop-badge,
   .fs-cascade-item,
+  .modal-sheet,
   .rc-kpi,
   .rc-spotlight,
   .rc-toast,

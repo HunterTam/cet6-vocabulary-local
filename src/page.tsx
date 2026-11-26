@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Cloud, ExternalLink, Eye, Flame, Headphones, Layers, LibraryBig, ListChecks, PencilLine, Play, Plus, RotateCcw, Search, Settings2, Shuffle, Sparkles, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
+import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Cloud, ExternalLink, Eye, Flame, Headphones, Layers, LibraryBig, ListChecks, PencilLine, Play, Plus, RotateCcw, Search, Settings2, SlidersHorizontal, Sparkles, Upload, Volume2, Waves, X } from "lucide-react";
 import { dateKey, firstAnswer, type Entry } from "./data";
 import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, studyStreakDays, vocabulary, type Card, type Mode } from "./vocabulary";
 import { dailyBatches } from "./daily-vocabulary";
@@ -16,6 +16,8 @@ import { GptImportModal } from "./gpt-import-modal";
 import { type DeckItem } from "./deck-picker-modal";
 import { SyncSettingsModal } from "./sync-settings-modal";
 import { DeckProgressModal } from "./deck-progress-modal";
+import { DeckSheetModal } from "./deck-sheet-modal";
+import { StudySettingsSheet } from "./study-settings-sheet";
 import {
   buildStudySession,
   clearSavedSessionSlot,
@@ -56,20 +58,12 @@ const modes = [
   {id:"recall", title:"看义写词", icon:PencilLine},
 ] as const;
 
-const groupSizeOptions = [
-  {value:10, label:"10词"},
-  {value:15, label:"15词"},
-  {value:20, label:"20词"},
-  {value:30, label:"30词"},
-  {value:0, label:"全部"},
-] as const;
-
 const tabs = [
-  {id:"review", label:"单词复盘", icon:BookOpen},
-  {id:"listening", label:"听力复盘", icon:Headphones},
-  {id:"library", label:"词句积累", icon:LibraryBig},
-  {id:"curve", label:"复习曲线", icon:Waves},
-  {id:"trend", label:"阅读趋势", icon:ChartNoAxesCombined},
+  {id:"review", label:"单词复盘", shortLabel:"背词", icon:BookOpen},
+  {id:"listening", label:"听力复盘", shortLabel:"听力", icon:Headphones},
+  {id:"library", label:"词句积累", shortLabel:"词库", icon:LibraryBig},
+  {id:"curve", label:"复习曲线", shortLabel:"曲线", icon:Waves},
+  {id:"trend", label:"阅读趋势", shortLabel:"阅读", icon:ChartNoAxesCombined},
 ] as const;
 
 type View = (typeof tabs)[number]["id"];
@@ -153,6 +147,8 @@ export default function VocabularyDesk() {
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [gptModalOpen, setGptModalOpen] = useState(false);
   const [deckProgressOpen, setDeckProgressOpen] = useState(false);
+  const [deckSheetOpen, setDeckSheetOpen] = useState(false);
+  const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
   const [limit, setLimit] = useState(40);
   const [curveCard, setCurveCard] = useState("");
   const [query, setQuery] = useState("");
@@ -803,7 +799,15 @@ export default function VocabularyDesk() {
     library: String(cards.length),
   } : {};
 
-  return <div className={"vocab shell" + (activeSession ? " studying" : "")}>
+  const availableModes: Record<Mode, boolean> = {
+    recognize: (activeDeck?.cards ?? []).some(c => eligible(c, "recognize")),
+    spelling: (activeDeck?.cards ?? []).some(c => eligible(c, "spelling")),
+    recall: (activeDeck?.cards ?? []).some(c => eligible(c, "recall")),
+  };
+  const currentModeTitle = modes.find(m => m.id === selectedMode)?.title ?? "看词识义";
+  const currentGroupLabel = studyPrefs.groupSize > 0 ? `每组 ${studyPrefs.groupSize} 词` : "全部";
+
+  return <div className={"vocab shell" + (activeSession ? " studying" : "") + (view === "review" && !activeSession ? " on-home" : "")}>
     <aside className="sidebar">
       <button className="brand" onClick={()=>navigate("review")} disabled={busy} aria-label="返回单词复盘">
         <span className="brand-icon"><BookOpen size={21}/></span>
@@ -812,7 +816,7 @@ export default function VocabularyDesk() {
 
       <nav className="side-nav" aria-label="主要功能">
         <div className="nav-label">学习空间</div>
-        {tabs.map(({id,label,icon:Icon}) => (
+        {tabs.map(({id,label,shortLabel,icon:Icon}) => (
           <button
             key={id}
             className={"nav-button "+(view===id?"active":"")}
@@ -822,8 +826,9 @@ export default function VocabularyDesk() {
             disabled={busy}
             onClick={()=>navigate(id)}
           >
-            <span className={"nav-pill-icon "+id}><Icon size={17}/></span>
-            <span>{label}</span>
+            <span className={"nav-pill-icon "+id}><Icon size={20}/></span>
+            <span className="nav-text-desktop">{label}</span>
+            <span className="nav-text-mobile">{shortLabel}</span>
             {navCounts[id] && <i className="nav-badge">{navCounts[id]}</i>}
           </button>
         ))}
@@ -899,6 +904,10 @@ export default function VocabularyDesk() {
               </div>
             )}
           </div>
+          <span className="mobile-streak-pill" title="连续打卡学习天数">
+            <Flame size={13} color="#ea6935" fill="#ff9e5e"/>
+            <b>{streak}天</b>
+          </span>
         </div>
         <div className="top-actions">
           {driveEnabled && (
@@ -909,20 +918,36 @@ export default function VocabularyDesk() {
           )}
           <button
             type="button"
+            className="mobile-icon-btn"
+            aria-label="搜索词库"
+            title="搜索词库"
+            onClick={() => navigate("library")}
+          >
+            <Search size={17}/>
+          </button>
+          <button
+            type="button"
             className={"cloud-chip " + (gistConfig ? "connected" : "")}
             disabled={gistBusy}
             onClick={() => setSyncModalOpen(true)}
-            title={gistConfig ? (gistMessage || "已连接 GitHub Gist 云同步（点击管理或立即同步）") : "配置 iPhone ↔ 电脑跨设备云同步"}
+            title={gistConfig ? (gistMessage || "已连接 GitHub Gist 云同步") : "云同步与备份设置"}
+            aria-label="云同步与备份设置"
           >
-            <Cloud size={14} className={gistBusy ? "spin" : ""}/>
-            <span>{gistBusy ? "云同步中…" : gistConfig ? "云同步已连" : "云同步"}</span>
+            <Cloud size={16} className={gistBusy ? "spin" : ""}/>
+            <span className="top-btn-label">{gistBusy ? "云同步中…" : gistConfig ? "云同步已连" : "云同步"}</span>
           </button>
           <form className="v-top-search" onSubmit={e=>{e.preventDefault();const value=query;navigate("library");setQuery(value);}}>
             <Search size={15}/>
             <input aria-label="全站搜索" placeholder="搜索词句与释义" value={query} onChange={e=>{setQuery(e.target.value);setLimit(40);}}/>
           </form>
-          <button className="v-primary" disabled={!ready||busy} onClick={()=>{navigate("library");setDraft(blank);}}>
-            <Plus size={16}/>添加词句
+          <button
+            className="v-primary top-add-btn"
+            disabled={!ready||busy}
+            aria-label="添加词句"
+            title="添加词句"
+            onClick={()=>{navigate("library");setDraft(blank);}}
+          >
+            <Plus size={17}/><span className="top-btn-label">添加词句</span>
           </button>
         </div>
       </header>
@@ -936,44 +961,61 @@ export default function VocabularyDesk() {
         {view==="review" && <>
           {!activeSession && (
             <div className="home-split">
-              {/* Left Column: Mainstream Vocab-App Study Hub (Clear Learn New vs Review Due) */}
+              {/* Left Column / Mobile Full-Screen Native App Home (不背单词 / 墨墨 Style) */}
               <section className="home-start-card">
-                <div className="home-start-head">
-                  <div>
-                    <span className="home-start-kicker">当前词书 · 已学 {activeDeckLearned}/{activeDeck?.cards.length ?? 0}（{activeDeckPct}%）</span>
-                    <div className="home-deck-title-row">
-                      <span className="home-start-deck-name">{activeDeck?.title || "第 1 天词书"}</span>
-                      <button
-                        type="button"
-                        className="home-inspect-btn"
-                        disabled={!ready || !activeDeck?.cards.length}
-                        onClick={() => setDeckProgressOpen(true)}
-                        title="查看本词表已学、未学、待复习的具体单词"
-                      >
-                        <ListChecks size={13}/>词表进度
-                      </button>
+                {/* Zone 1: Compact Native Wordbook Card (Tap "换词书" opens iOS Bottom Sheet) */}
+                <div className="ios-book-card">
+                  <div className="ios-book-top">
+                    <div className="ios-book-cover">
+                      <img src={heroArt} alt="" width="44" height="44"/>
                     </div>
+                    <div className="ios-book-meta">
+                      <strong>{activeDeck?.title || "第 1 天词书"}</strong>
+                      <span>已学 {activeDeckLearned} / {activeDeck?.cards.length ?? 0} 词 · {activeDeckPct}%</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="ios-book-switch"
+                      onClick={() => setDeckSheetOpen(true)}
+                    >
+                      <span>换词书</span>
+                      <ChevronRight size={14}/>
+                    </button>
                   </div>
-                  <img className="home-start-mascot" src={heroArt} alt="" width="52" height="52"/>
+                  <div className="ios-book-prog-row">
+                    <div className="home-start-bar wide" aria-hidden="true">
+                      <i style={{ width: `${activeDeckPct}%` }}/>
+                    </div>
+                    <button
+                      type="button"
+                      className="ios-book-detail-link"
+                      disabled={!ready || !activeDeck?.cards.length}
+                      onClick={() => setDeckProgressOpen(true)}
+                    >
+                      <ListChecks size={13}/>词表进度
+                    </button>
+                  </div>
                 </div>
 
-                {/* Progress Bar + 3 Distinct Buckets (Never mixes New & Due Review!) */}
-                <div className="home-mastery-box">
-                  <div className="home-start-bar wide" aria-hidden="true">
-                    <i style={{ width: `${activeDeckPct}%` }}/>
+                {/* Zone 2: Airy Centered Today's Plan Hero (Clean Focal Numbers, Zero Clutter) */}
+                <div className="ios-home-center">
+                  <div className="ios-today-pill">
+                    <span>今日新学 <b>{todayActivity.newToday}</b></span>
+                    <i>·</i>
+                    <span>已复习 <b>{todayActivity.reviewedToday}</b></span>
+                    <i>·</i>
+                    <span>已稳固 <b>{activeDeckBuckets.solid.length}</b></span>
                   </div>
-                  <div className="home-trio-stats">
-                    <div className="home-trio-cell new">
+
+                  <div className="ios-focus-pair">
+                    <div className="ios-focus-metric new">
                       <strong>{ready ? activeDeckBuckets.unlearned.length : "—"}</strong>
-                      <span>未学新词</span>
+                      <span>待学新词</span>
                     </div>
-                    <div className="home-trio-cell due">
+                    <div className="ios-focus-divider" aria-hidden="true"/>
+                    <div className="ios-focus-metric due">
                       <strong>{ready ? activeDeckBuckets.dueReview.length : "—"}</strong>
                       <span>今日待复习</span>
-                    </div>
-                    <div className="home-trio-cell solid">
-                      <strong>{ready ? activeDeckBuckets.solid.length : "—"}</strong>
-                      <span>已稳固</span>
                     </div>
                   </div>
 
@@ -997,10 +1039,22 @@ export default function VocabularyDesk() {
                       </button>
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    className="ios-prefs-trigger"
+                    onClick={() => setSettingsSheetOpen(true)}
+                  >
+                    <SlidersHorizontal size={13}/>
+                    <span>
+                      {currentModeTitle} · {currentGroupLabel} · {studyPrefs.shuffle ? "随机" : "顺序"} · {audioPrefs.autoPlay ? "播音开" : "静音"}
+                    </span>
+                    <ChevronRight size={13}/>
+                  </button>
                 </div>
 
-                {/* Iconic Dual Study Buttons: Learn New | Review Due */}
-                <div className="home-start-actions">
+                {/* Zone 3: Thumb-Reachable Bottom Dual Action Cards */}
+                <div className="ios-home-dock">
                   <div className="home-dual-cta">
                     <button
                       type="button"
@@ -1008,7 +1062,7 @@ export default function VocabularyDesk() {
                       disabled={!ready || (!activeDeckBuckets.unlearned.length && !activeNewSaved)}
                       onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "new", true)}
                     >
-                      <span className="home-cta-top"><Sparkles size={16}/>{activeNewSaved ? "继续学新词" : "学新词"}</span>
+                      <span className="home-cta-top"><Sparkles size={17}/>{activeNewSaved ? "继续学新词" : "学新词"}</span>
                       <small>
                         {activeNewSaved
                           ? `断点 ${activeNewSaved.position + 1}/${activeNewSaved.queueIds.length}`
@@ -1031,7 +1085,7 @@ export default function VocabularyDesk() {
                         }
                       }}
                     >
-                      <span className="home-cta-top"><RotateCcw size={15}/>{activeReviewSaved ? "继续复习" : "去复习"}</span>
+                      <span className="home-cta-top"><RotateCcw size={16}/>{activeReviewSaved ? "继续复习" : "去复习"}</span>
                       <small>
                         {activeReviewSaved
                           ? `断点 ${activeReviewSaved.position + 1}/${activeReviewSaved.queueIds.length}`
@@ -1044,98 +1098,38 @@ export default function VocabularyDesk() {
                     </button>
                   </div>
 
-                  {ready && activeDeckBuckets.unlearned.length > 0 && activeDeckBuckets.dueReview.length > 0 && (
-                    <button
-                      type="button"
-                      className="home-cta-secondary full"
-                      onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "mix", false)}
-                    >
-                      <Layers size={14}/>智能混合背诵（新词 + 复习穿插）
+                  <div className="ios-home-quickbar">
+                    {ready && activeDeckBuckets.unlearned.length > 0 && activeDeckBuckets.dueReview.length > 0 ? (
+                      <button
+                        type="button"
+                        className="ios-quick-pill"
+                        onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "mix", false)}
+                      >
+                        <Layers size={13}/>智能混合背诵
+                      </button>
+                    ) : ready && activeDeckBuckets.unlearned.length === 0 && nextBookDeckHint ? (
+                      <button
+                        type="button"
+                        className="ios-quick-pill accent"
+                        onClick={() => {
+                          const target = decks.find(d => d.id === nextBookDeckHint.deckId);
+                          if (target) selectDeck(target, true);
+                        }}
+                      >
+                        <Play size={13}/>开启「{nextBookDeckHint.title}」
+                      </button>
+                    ) : ready && activeDeckBuckets.unlearned.length === 0 && activeDeckBuckets.dueReview.length === 0 && activeDeckPlayable.length > 0 ? (
+                      <button
+                        type="button"
+                        className="ios-quick-pill"
+                        onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "free", false)}
+                      >
+                        <Play size={13}/>自由速刷巩固
+                      </button>
+                    ) : null}
+                    <button type="button" className="ios-quick-pill" onClick={() => setGptModalOpen(true)}>
+                      <Upload size={13}/>导入 GPT 词单
                     </button>
-                  )}
-
-                  {ready && activeDeckBuckets.unlearned.length === 0 && nextBookDeckHint && (
-                    <button
-                      type="button"
-                      className="home-cta-secondary full"
-                      onClick={() => {
-                        const target = decks.find(d => d.id === nextBookDeckHint.deckId);
-                        if (target) selectDeck(target, true);
-                      }}
-                    >
-                      <Play size={14}/>开启「{nextBookDeckHint.title}」继续学新词（{nextBookDeckHint.unlearnedCount} 词）
-                    </button>
-                  )}
-
-                  {ready && activeDeckBuckets.unlearned.length === 0 && activeDeckBuckets.dueReview.length === 0 && activeDeckPlayable.length > 0 && (
-                    <button
-                      type="button"
-                      className="home-cta-secondary full"
-                      onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "free", false)}
-                    >
-                      <Play size={14}/>本表已清空 · 自由速刷巩固
-                    </button>
-                  )}
-                </div>
-
-                {/* Quiet Inline Mode & Study Controls */}
-                <div className="home-start-foot">
-                  <div className="home-mode-seg full" role="tablist" aria-label="背诵方式">
-                    {modes.map(({ id, title, icon: Icon }) => {
-                      const ok = (activeDeck?.cards ?? []).some(c => eligible(c, id));
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          role="tab"
-                          aria-selected={selectedMode === id}
-                          disabled={!ready || !ok}
-                          className={selectedMode === id ? "active" : ""}
-                          onClick={() => setSelectedMode(id)}
-                        >
-                          <Icon size={14}/>{title}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="home-quiet-prefs">
-                    <select
-                      aria-label="每组词数"
-                      className="home-mini-select"
-                      value={studyPrefs.groupSize}
-                      onChange={e => updateStudyPrefs({ ...studyPrefs, groupSize: Number(e.target.value) })}
-                    >
-                      {groupSizeOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>每组 {opt.label}</option>
-                      ))}
-                    </select>
-
-                    <button
-                      type="button"
-                      className={"home-mini-pill " + (audioPrefs.autoPlay ? "on" : "")}
-                      onClick={() => updateAudioPrefs({ ...audioPrefs, autoPlay: !audioPrefs.autoPlay })}
-                    >
-                      {audioPrefs.autoPlay ? <Volume2 size={14}/> : <VolumeX size={14}/>}
-                      <span>{audioPrefs.autoPlay ? "自动播音" : "静音"}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={"home-mini-pill " + (studyPrefs.shuffle ? "on" : "")}
-                      onClick={() => updateStudyPrefs({ ...studyPrefs, shuffle: !studyPrefs.shuffle })}
-                    >
-                      <Shuffle size={13}/>
-                      <span>{studyPrefs.shuffle ? "随机" : "顺序"}</span>
-                    </button>
-                  </div>
-
-                  <div className="home-today-strip">
-                    <span>今日新学 <b>{todayActivity.newToday}</b></span>
-                    <i>·</i>
-                    <span>今日复习 <b>{todayActivity.reviewedToday}</b></span>
-                    <i>·</i>
-                    <span>连胜 <b>{streak}</b> 天</span>
                   </div>
                 </div>
               </section>
@@ -1462,6 +1456,29 @@ export default function VocabularyDesk() {
       onMaster={entry => persist(entry, "master")}
       onReset={entry => persist(entry, "reset")}
       onStartKind={kind => activeDeck && launchSession(activeDeck, selectedMode, kind, true)}
+    />
+    <DeckSheetModal
+      open={deckSheetOpen}
+      decks={decks}
+      selectedDeckId={selectedDeckId}
+      deckTab={deckTab}
+      readingCount={readingAllCards.length}
+      today={today}
+      onChangeTab={changeDeckTab}
+      onSelectDeck={selectDeck}
+      onOpenGptImport={() => setGptModalOpen(true)}
+      onClose={() => setDeckSheetOpen(false)}
+    />
+    <StudySettingsSheet
+      open={settingsSheetOpen}
+      mode={selectedMode}
+      availableModes={availableModes}
+      audioPrefs={audioPrefs}
+      studyPrefs={studyPrefs}
+      onModeChange={setSelectedMode}
+      onUpdateAudioPrefs={updateAudioPrefs}
+      onUpdateStudyPrefs={updateStudyPrefs}
+      onClose={() => setSettingsSheetOpen(false)}
     />
   </div>;
 }

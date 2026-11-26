@@ -168,7 +168,7 @@ export function SyncSettingsModal({
         <div className="sync-modal-section">
           <div className="v-sync-head">
             <h3>应用版本与离线缓存</h3>
-            <span className="v-tag mint">v2.8 · 新词/复习分离版</span>
+            <span className="v-tag mint">v3.0 · 原生移动版</span>
           </div>
           <p className="v-muted">
             点击下方按钮仅刷新应用外壳缓存，不会删除任何本机背词进度。
