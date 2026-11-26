@@ -1,4 +1,4 @@
-const CACHE_NAME = "cet6-pwa-v8";
+const CACHE_NAME = "cet6-pwa-v9";
 const STATIC_SHELL = ["./manifest.webmanifest", "./icon-192.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", event => {
