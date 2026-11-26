@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, BookText, Check, Eye, Flame, GitCompareArrows, Lightbulb, RotateCcw, Sparkles, Volume2, VolumeX, X, Zap } from "lucide-react";
+import { ArrowLeft, BookText, Check, CheckCheck, Eye, Flame, GitCompareArrows, Lightbulb, RotateCcw, Sparkles, Undo2, Volume2, VolumeX, X, Zap } from "lucide-react";
 import type { Entry } from "./data";
 import { spellingMatches, type Card, type Mode } from "./vocabulary";
 import { findLookAlikes } from "./confusable-words";
@@ -12,8 +12,22 @@ import {
   stopSpeaking,
   type AudioPrefs,
   type SavedSession,
+  type StudyKind,
   type StudyPrefs,
 } from "./study-session";
+
+type DeckRemaining = {
+  unlearned: number;
+  dueReview: number;
+  learned: number;
+  total: number;
+};
+
+type NextDeckHint = {
+  deckId: string;
+  title: string;
+  unlearnedCount: number;
+};
 
 type Props = {
   session: SavedSession;
@@ -22,11 +36,15 @@ type Props = {
   busy: boolean;
   audioPrefs: AudioPrefs;
   studyPrefs: StudyPrefs;
+  deckRemaining?: DeckRemaining;
+  nextDeckHint?: NextDeckHint;
   onUpdateAudioPrefs: (next: AudioPrefs) => void;
   onUpdateStudyPrefs: (next: StudyPrefs) => void;
   onSessionChange: (next: SavedSession | null) => void;
   onRate: (entry: Entry, passed: boolean) => Promise<boolean>;
-  onNextGroup: (deckId: string, mode: Mode) => void;
+  onMaster: (entry: Entry) => Promise<boolean>;
+  onUndo: (snapshot: Entry) => Promise<boolean>;
+  onNextGroup: (deckId: string, mode: Mode, kind: StudyKind) => void;
   onRetryWrong: (wrongCards: Card[], deckLabel: string, mode: Mode) => void;
   onExit: () => void;
 };
@@ -37,12 +55,24 @@ const modeNames: Record<Mode, string> = {
   recall: "看义写词",
 };
 
+const kindMeta: Record<StudyKind, { label: string; short: string; tone: string }> = {
+  new:    { label: "学新词", short: "新词", tone: "new" },
+  review: { label: "到期复习", short: "复习", tone: "review" },
+  mix:    { label: "智能混合", short: "混合", tone: "mix" },
+  free:   { label: "自由速刷", short: "速刷", tone: "free" },
+};
+
 type RevealState = undefined | "check-know" | "check-miss" | "shown" | "right" | "wrong";
 
 type FlipSnapshot = {
   termRect?: DOMRect;
   ipaRect?: DOMRect;
   speakRect?: DOMRect;
+};
+
+type UndoRecord = {
+  prevSession: SavedSession;
+  prevEntry: Entry;
 };
 
 function splitExampleParts(raw?: string): { english: string; chinese: string; note: string } {
@@ -91,7 +121,6 @@ function animateFlip(el: HTMLElement | null, fromRect: DOMRect | undefined, dura
   const toRect = el.getBoundingClientRect();
   if (!toRect.width || !toRect.height || !fromRect.width || !fromRect.height) return;
 
-  // Use uniform scale based on height ratio so typography never stretches horizontally/vertically
   const scale = Math.min(2.8, Math.max(0.55, fromRect.height / toRect.height));
   const dx = (fromRect.left + fromRect.width / 2) - (toRect.left + toRect.width / 2);
   const dy = (fromRect.top + fromRect.height / 2) - (toRect.top + toRect.height / 2);
@@ -118,10 +147,14 @@ export function FlashcardStudio({
   busy,
   audioPrefs,
   studyPrefs,
+  deckRemaining,
+  nextDeckHint,
   onUpdateAudioPrefs,
   onUpdateStudyPrefs,
   onSessionChange,
   onRate,
+  onMaster,
+  onUndo,
   onNextGroup,
   onRetryWrong,
   onExit,
@@ -131,8 +164,9 @@ export function FlashcardStudio({
   const [letterHint, setLetterHint] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [audioNote, setAudioNote] = useState("");
+  const [undoStack, setUndoStack] = useState<UndoRecord[]>([]);
+  const [undoToast, setUndoToast] = useState("");
 
-  // Refs for GPU-accelerated FLIP shrink transition from giant front word -> compact reveal header
   const termRef = useRef<HTMLHeadingElement>(null);
   const ipaRef = useRef<HTMLSpanElement>(null);
   const speakRef = useRef<HTMLButtonElement>(null);
@@ -142,6 +176,7 @@ export function FlashcardStudio({
   const activeCard = activeId ? cardsById.get(activeId) : undefined;
   const finished = session.position >= session.queueIds.length || !activeCard;
   const isRequeued = Boolean(activeId && session.requeuedIds.includes(activeId));
+  const kindInfo = kindMeta[session.studyKind ?? "mix"];
 
   const exampleParts = useMemo(() => splitExampleParts(activeCard?.example), [activeCard?.example]);
   const englishExample = exampleParts.english || extractEnglishExample(activeCard?.example);
@@ -150,7 +185,6 @@ export function FlashcardStudio({
     [activeCard, allCards],
   );
 
-  // Adaptive giant typography size class so short words look huge & long phrases stay crisp
   const termLength = activeCard?.term.length ?? 0;
   const termSizeClass = termLength > 26 ? " long" : termLength > 14 ? " medium" : "";
 
@@ -179,7 +213,6 @@ export function FlashcardStudio({
     setReveal(next);
   }
 
-  // Run synchronous FLIP animation right before paint when switching from front -> revealed
   useLayoutEffect(() => {
     const snap = flipSnapRef.current;
     if (!reveal || !snap) return;
@@ -189,7 +222,6 @@ export function FlashcardStudio({
     animateFlip(speakRef.current, snap.speakRect, 380);
   }, [reveal]);
 
-  // Auto-play pronunciation whenever a new card enters (respecting mode & user preference)
   useEffect(() => {
     if (finished || !activeCard) return;
     if (!audioPrefs.autoPlay) return;
@@ -207,10 +239,25 @@ export function FlashcardStudio({
     setAudioNote("");
   }
 
-  async function commitAndAdvance(passed: boolean) {
+  async function commitAndAdvance(outcome: "pass" | "again" | "master") {
     if (!activeCard || busy) return;
-    const saved = await onRate(activeCard.entry, passed);
+    const prevEntrySnapshot: Entry = JSON.parse(JSON.stringify(activeCard.entry)) as Entry;
+    const prevSessionSnapshot: SavedSession = {
+      ...session,
+      queueIds: [...session.queueIds],
+      uniqueIds: [...session.uniqueIds],
+      masteredIds: [...session.masteredIds],
+      wrongIds: [...session.wrongIds],
+      requeuedIds: [...session.requeuedIds],
+    };
+
+    const saved = outcome === "master"
+      ? await onMaster(activeCard.entry)
+      : await onRate(activeCard.entry, outcome === "pass");
     if (!saved) return;
+
+    setUndoStack(prev => [...prev.slice(-9), { prevSession: prevSessionSnapshot, prevEntry: prevEntrySnapshot }]);
+    setUndoToast(outcome === "master" ? `已「斩」${activeCard.term}（60 天后再复习）` : "");
 
     const currentId = activeCard.entry.id;
     const nextQueue = [...session.queueIds];
@@ -218,14 +265,15 @@ export function FlashcardStudio({
     const nextWrong = new Set(session.wrongIds);
     const nextRequeued = new Set(session.requeuedIds);
 
-    if (passed) {
+    if (outcome === "pass" || outcome === "master") {
       nextMastered.add(currentId);
       nextRequeued.delete(currentId);
     } else {
       nextWrong.add(currentId);
+      // Reinforce missed words 2-3 cards ahead while short-term memory is still warm
       const aheadSlice = nextQueue.slice(session.position + 1);
       if (!aheadSlice.includes(currentId)) {
-        const insertAt = Math.min(session.position + 4, nextQueue.length);
+        const insertAt = Math.min(session.position + 3, nextQueue.length);
         nextQueue.splice(insertAt, 0, currentId);
         nextRequeued.add(currentId);
       }
@@ -252,6 +300,17 @@ export function FlashcardStudio({
 
     resetCardUi();
     onSessionChange(updated);
+  }
+
+  async function handleUndoLast() {
+    if (!undoStack.length || busy) return;
+    const last = undoStack[undoStack.length - 1];
+    const ok = await onUndo(last.prevEntry);
+    if (!ok) return;
+    setUndoStack(prev => prev.slice(0, -1));
+    setUndoToast(`已撤销「${last.prevEntry.fields.title || "上一词"}」`);
+    resetCardUi();
+    onSessionChange(last.prevSession);
   }
 
   function handleCheckSpelling() {
@@ -284,12 +343,17 @@ export function FlashcardStudio({
         playText(activeCard!.term);
         return;
       }
+      if ((event.key === "z" || event.key === "Z") && undoStack.length) {
+        event.preventDefault();
+        void handleUndoLast();
+        return;
+      }
 
       if (session.mode === "recognize") {
         if (!reveal) {
           if (event.key === "1" || event.key === "ArrowLeft") {
             event.preventDefault();
-            if (studyPrefs.instantKnow) void commitAndAdvance(true);
+            if (studyPrefs.instantKnow) void commitAndAdvance("pass");
             else triggerReveal("check-know");
           } else if (event.key === " ") {
             event.preventDefault();
@@ -299,25 +363,25 @@ export function FlashcardStudio({
             triggerReveal("check-miss");
           } else if (event.key === "Enter") {
             event.preventDefault();
-            if (studyPrefs.instantKnow) void commitAndAdvance(true);
+            if (studyPrefs.instantKnow) void commitAndAdvance("pass");
             else triggerReveal("check-know");
           }
         } else {
           if (event.key === "1" || event.key === "ArrowLeft") {
             event.preventDefault();
-            void commitAndAdvance(true);
+            void commitAndAdvance("pass");
           } else if (event.key === "2" || event.key === "ArrowRight") {
             event.preventDefault();
-            void commitAndAdvance(false);
+            void commitAndAdvance("again");
           } else if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            void commitAndAdvance(reveal !== "check-miss");
+            void commitAndAdvance(reveal !== "check-miss" ? "pass" : "again");
           }
         }
       } else if (reveal === "right" || reveal === "wrong") {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          void commitAndAdvance(reveal === "right");
+          void commitAndAdvance(reveal === "right" ? "pass" : "again");
         }
       }
     }
@@ -329,16 +393,42 @@ export function FlashcardStudio({
   const masteredUnique = session.masteredIds.length;
   const firstTryCorrect = session.uniqueIds.filter(id => session.masteredIds.includes(id) && !session.wrongIds.includes(id)).length;
   const wrongCardsList = session.wrongIds.map(id => cardsById.get(id)).filter((c): c is Card => Boolean(c));
+  const sessionWords = session.uniqueIds.map(id => cardsById.get(id)).filter((c): c is Card => Boolean(c));
   const masteredPct = Math.min(100, Math.round((masteredUnique / totalUnique) * 100));
   const pendingRetryPct = Math.min(100 - masteredPct, Math.round((session.requeuedIds.length / totalUnique) * 100));
 
   if (finished) {
     const accuracy = Math.round((firstTryCorrect / totalUnique) * 100);
+    const hasMoreNew = (deckRemaining?.unlearned ?? 0) > 0;
+    const hasMoreDue = (deckRemaining?.dueReview ?? 0) > 0;
+    const nextActionKind: StudyKind | null =
+      session.studyKind === "new"
+        ? (hasMoreNew ? "new" : hasMoreDue ? "review" : null)
+        : session.studyKind === "review"
+          ? (hasMoreDue ? "review" : hasMoreNew ? "new" : null)
+          : hasMoreNew
+            ? "new"
+            : hasMoreDue
+              ? "review"
+              : "free";
+
+    const primaryNextLabel =
+      nextActionKind === "new"
+        ? `继续学下一组新词（本表剩 ${deckRemaining?.unlearned} 词）`
+        : nextActionKind === "review"
+          ? `继续复习到期词（本表剩 ${deckRemaining?.dueReview} 词）`
+          : nextDeckHint
+            ? `开启「${nextDeckHint.title}」学新词（${nextDeckHint.unlearnedCount} 词）`
+            : "继续自由速刷下一组";
+
     return (
       <section className="v-panel fs-shell fs-complete">
         <div className="fs-complete-badge"><Sparkles size={24}/></div>
-        <h2>本组背诵完成！</h2>
-        <p className="v-muted">{session.deckLabel} · {modeNames[session.mode]}</p>
+        <h2>本组{kindInfo.label}完成！</h2>
+        <p className="v-muted">
+          {session.deckLabel} · {modeNames[session.mode]}
+          {deckRemaining ? ` · 本表已学 ${deckRemaining.learned}/${deckRemaining.total}` : ""}
+        </p>
 
         <div className="fs-summary-stats">
           <div>
@@ -347,7 +437,7 @@ export function FlashcardStudio({
           </div>
           <div>
             <strong className="mint">{accuracy}%</strong>
-            <span>首次正确率</span>
+            <span>首次认识率</span>
           </div>
           <div>
             <strong className={wrongCardsList.length ? "peach" : "mint"}>{wrongCardsList.length}</strong>
@@ -358,7 +448,7 @@ export function FlashcardStudio({
         {wrongCardsList.length > 0 && (
           <div className="fs-wrong-review">
             <div className="fs-wrong-head">
-              <strong>本轮错词清单（点喇叭可复听）</strong>
+              <strong>本轮不熟词清单（点词复听）</strong>
               <button
                 type="button"
                 className="v-secondary rc-mini-btn"
@@ -386,12 +476,33 @@ export function FlashcardStudio({
           </div>
         )}
 
+        {!wrongCardsList.length && sessionWords.length > 0 && (
+          <div className="fs-batch-recap">
+            <strong className="v-muted">本组全部一次过关（点任意词可再听发音）</strong>
+            <div className="fs-recap-pills">
+              {sessionWords.map(card => (
+                <button key={card.entry.id} type="button" className="fs-recap-pill" onClick={() => playText(card.term)}>
+                  {card.term}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="fs-complete-actions">
-          <button type="button" className="v-primary" onClick={() => onNextGroup(session.deckId, session.mode)}>
-            继续下一组 ({session.groupSize > 0 ? `${session.groupSize} 词` : "全部"})
+          <button
+            type="button"
+            className="v-primary"
+            onClick={() => {
+              if (nextActionKind) onNextGroup(session.deckId, session.mode, nextActionKind);
+              else if (nextDeckHint) onNextGroup(nextDeckHint.deckId, session.mode, "new");
+              else onNextGroup(session.deckId, session.mode, "free");
+            }}
+          >
+            {primaryNextLabel}
           </button>
           <button type="button" className="v-secondary" onClick={onExit}>
-            返回词表
+            返回首页
           </button>
         </div>
       </section>
@@ -406,7 +517,7 @@ export function FlashcardStudio({
           type="button"
           className="fs-back-btn"
           disabled={busy}
-          title="暂存进度并返回"
+          title="进度已自动保存，随时可继续"
           onClick={() => { stopSpeaking(); onExit(); }}
         >
           <ArrowLeft size={16}/>
@@ -415,10 +526,13 @@ export function FlashcardStudio({
 
         <div className="fs-progress-meta">
           <div className="fs-progress-labels">
-            <strong>{session.deckLabel}</strong>
+            <div className="fs-deck-title-wrap">
+              <span className={"fs-kind-badge " + kindInfo.tone}>{kindInfo.short}</span>
+              <strong>{session.deckLabel}</strong>
+            </div>
             <span>
               <b>{session.position + 1}/{session.queueIds.length}</b>
-              <em className="fs-prog-detail"> · 已掌握 {masteredUnique}/{totalUnique}</em>
+              <em className="fs-prog-detail"> · 已过 {masteredUnique}/{totalUnique}</em>
             </span>
           </div>
           <div className="fs-progress-track" aria-label="本轮进度">
@@ -428,6 +542,19 @@ export function FlashcardStudio({
         </div>
 
         <div className="fs-audio-controls">
+          {undoStack.length > 0 && (
+            <button
+              type="button"
+              className="fs-ctrl-pill fs-undo-btn"
+              disabled={busy}
+              onClick={() => void handleUndoLast()}
+              title="撤销上一词的判定 (快捷键 Z)"
+              aria-label="撤销上一词"
+            >
+              <Undo2 size={14}/>
+              <span className="fs-ctrl-label">撤销</span>
+            </button>
+          )}
           <button
             type="button"
             className={"fs-ctrl-pill " + (audioPrefs.autoPlay ? "on" : "")}
@@ -436,7 +563,7 @@ export function FlashcardStudio({
             aria-label={audioPrefs.autoPlay ? "自动播音已开启" : "自动播音已关闭"}
           >
             {audioPrefs.autoPlay ? <Volume2 size={15}/> : <VolumeX size={15}/>}
-            <span className="fs-ctrl-label">{audioPrefs.autoPlay ? "播音 开" : "播音 关"}</span>
+            <span className="fs-ctrl-label">{audioPrefs.autoPlay ? "播音" : "静音"}</span>
           </button>
           <button
             type="button"
@@ -470,8 +597,19 @@ export function FlashcardStudio({
             <span className="v-tag">Day {activeCard.entry.fields.batch} · P{activeCard.entry.fields.page}</span>
           )}
           <span className="v-tag mint">{activeCard.entry.reviewed ? `S${activeCard.entry.stage}` : "新词"}</span>
-          {isRequeued && <span className="v-tag rose"><Flame size={11}/>重练</span>}
+          {isRequeued && <span className="v-tag rose"><Flame size={11}/>本轮巩固</span>}
+          <button
+            type="button"
+            className="fs-master-btn"
+            disabled={busy}
+            title="太简单？点击「斩」直接标记完全掌握，60 天内不再出现"
+            onClick={() => void commitAndAdvance("master")}
+          >
+            <CheckCheck size={13}/>斩 · 太简单
+          </button>
         </div>
+
+        {undoToast && <div className="fs-mini-toast" role="status">{undoToast}</div>}
 
         {/* RECOGNIZE MODE — Persistent Morphing Card (Giant Front -> Smooth FLIP Shrink -> Reveal Details) */}
         {session.mode === "recognize" && (
@@ -483,7 +621,6 @@ export function FlashcardStudio({
                 (reveal === "check-know" ? "tone-know" : reveal === "check-miss" ? "tone-miss" : "")
               }
             >
-              {/* Persistent Word + IPA + Audio Region (Stays Mounted for 60fps FLIP Glide & Shrink) */}
               <div className="fs-morph-header">
                 <div className="fs-morph-word-block">
                   <div className="fs-morph-title-line">
@@ -540,7 +677,6 @@ export function FlashcardStudio({
 
               {audioNote && <p className="v-muted fs-audio-note">{audioNote}</p>}
 
-              {/* Front State Lower Zone: Contextual English Example Anchored Cleanly Inside Hero Card */}
               {!reveal && (
                 <div className="fs-front-lower">
                   {englishExample ? (
@@ -564,7 +700,6 @@ export function FlashcardStudio({
                 </div>
               )}
 
-              {/* Revealed State Cascading Details: Meaning -> Bilingual Example -> 2x2 Look-Alikes */}
               {reveal && (
                 <div className="fs-reveal-cascade">
                   <p className="fs-meaning compact fs-cascade-item" style={{ animationDelay: "70ms" }}>
@@ -799,7 +934,7 @@ export function FlashcardStudio({
               className="fs-btn-know"
               disabled={busy}
               onClick={() => {
-                if (studyPrefs.instantKnow) void commitAndAdvance(true);
+                if (studyPrefs.instantKnow) void commitAndAdvance("pass");
                 else triggerReveal("check-know");
               }}
             >
@@ -821,7 +956,7 @@ export function FlashcardStudio({
               className="fs-btn-know"
               autoFocus={reveal !== "check-miss"}
               disabled={busy}
-              onClick={() => void commitAndAdvance(true)}
+              onClick={() => void commitAndAdvance("pass")}
             >
               <Check size={17}/>
               <span>{busy ? "保存…" : reveal === "check-miss" ? "其实认识" : "记住了"}</span>
@@ -842,7 +977,7 @@ export function FlashcardStudio({
               className={"fs-btn-miss " + (reveal === "check-miss" ? "solid" : "")}
               autoFocus={reveal === "check-miss"}
               disabled={busy}
-              onClick={() => void commitAndAdvance(false)}
+              onClick={() => void commitAndAdvance("again")}
             >
               <RotateCcw size={15}/>
               <span>{busy ? "保存…" : reveal === "check-miss" ? "不认识·重练" : "没记牢"}</span>
@@ -876,7 +1011,7 @@ export function FlashcardStudio({
               className={reveal === "right" ? "fs-btn-know" : "fs-btn-miss solid"}
               autoFocus
               disabled={busy}
-              onClick={() => void commitAndAdvance(reveal === "right")}
+              onClick={() => void commitAndAdvance(reveal === "right" ? "pass" : "again")}
             >
               <span>{busy ? "保存中…" : reveal === "right" ? "下一词" : "重练 · 下一词"}</span>
               <kbd>Enter</kbd>

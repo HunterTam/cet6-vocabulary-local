@@ -1,31 +1,42 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Cloud, ExternalLink, Eye, Flame, Headphones, LibraryBig, PencilLine, Play, Plus, Search, Settings2, Shuffle, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
+import { AudioLines, BookOpen, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, Cloud, ExternalLink, Eye, Flame, Headphones, Layers, LibraryBig, ListChecks, PencilLine, Play, Plus, RotateCcw, Search, Settings2, Shuffle, Sparkles, Upload, Volume2, VolumeX, Waves, X } from "lucide-react";
 import { dateKey, firstAnswer, type Entry } from "./data";
 import { eligible, practiceGroups, readingQuestionsForGroup, readingRules, studyStreakDays, vocabulary, type Card, type Mode } from "./vocabulary";
 import { dailyBatches } from "./daily-vocabulary";
 import { readingDocUrl, type ParsedImportCard } from "./reading-vocabulary";
 import { ReviewCurve } from "./review-curve";
-import { importGptNotes, importRecords, listRecords, listRecordsSync, mergeDriveFeed, mergeReadingDriveDoc, saveRecord } from "./local-store";
+import { importGptNotes, importRecords, listRecords, listRecordsSync, mergeDriveFeed, mergeReadingDriveDoc, restoreRecord, saveRecord } from "./local-store";
+import { mirrorKeyToDurable, requestPersistentStorage, syncDurableMirror } from "./durable-store";
 import { clearGistConfig, readGistConfig, syncWithGist, type GistConfig } from "./cloud-sync";
 import { ListeningReview } from "./listening-review";
 import { FlashcardStudio } from "./flashcard-studio";
 import { GptImportModal } from "./gpt-import-modal";
 import { type DeckItem } from "./deck-picker-modal";
 import { SyncSettingsModal } from "./sync-settings-modal";
+import { DeckProgressModal } from "./deck-progress-modal";
 import {
   buildStudySession,
+  clearSavedSessionSlot,
+  countTodayActivity,
+  partitionPool,
+  readAllSavedSessions,
   readAudioPrefs,
-  readSavedSession,
+  readDeckTab,
+  readSelectedDeckId,
   readStudyPrefs,
   saveAudioPrefs,
+  saveDeckTab,
+  saveSelectedDeckId,
   saveStudyPrefs,
+  sessionSlotKey,
   speakEnglish,
   stopSpeaking,
   writeSavedSession,
   type AudioPrefs,
   type SavedSession,
+  type StudyKind,
   type StudyPrefs,
 } from "./study-session";
 import heroArt from "./images/model-0.webp?inline";
@@ -47,6 +58,7 @@ const modes = [
 
 const groupSizeOptions = [
   {value:10, label:"10词"},
+  {value:15, label:"15词"},
   {value:20, label:"20词"},
   {value:30, label:"30词"},
   {value:0, label:"全部"},
@@ -131,15 +143,16 @@ export default function VocabularyDesk() {
   const [countdownOpen, setCountdownOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const countdownRef = useRef<HTMLDivElement>(null);
-  const [selectedDeckId, setSelectedDeckId] = useState("day-1");
-  const [deckTab, setDeckTab] = useState<"book" | "reading" | "smart">("book");
+  const [selectedDeckId, setSelectedDeckId] = useState(() => readSelectedDeckId("day-1"));
+  const [deckTab, setDeckTab] = useState<"book" | "reading" | "smart">(readDeckTab);
   const [selectedMode, setSelectedMode] = useState<Mode>("recognize");
   const [audioPrefs, setAudioPrefs] = useState<AudioPrefs>(readAudioPrefs);
   const [studyPrefs, setStudyPrefs] = useState<StudyPrefs>(readStudyPrefs);
   const [activeSession, setActiveSession] = useState<SavedSession | null>(null);
-  const [savedSession, setSavedSession] = useState<SavedSession | null>(readSavedSession);
+  const [savedSessionsMap, setSavedSessionsMap] = useState<Record<string, SavedSession>>(readAllSavedSessions);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [gptModalOpen, setGptModalOpen] = useState(false);
+  const [deckProgressOpen, setDeckProgressOpen] = useState(false);
   const [limit, setLimit] = useState(40);
   const [curveCard, setCurveCard] = useState("");
   const [query, setQuery] = useState("");
@@ -258,6 +271,17 @@ export default function VocabularyDesk() {
 
   useEffect(() => {
     if (!initialSnapshot.ready) void load();
+    requestPersistentStorage();
+    void syncDurableMirror().then(restored => {
+      if (restored) {
+        setEntries(listRecordsSync());
+        setReady(true);
+        setSavedSessionsMap(readAllSavedSessions());
+        setSelectedDeckId(readSelectedDeckId("day-1"));
+        setDeckTab(readDeckTab());
+        setNotice("已从本机安全备份自动恢复你的背诵进度。");
+      }
+    });
     const savedGist = readGistConfig();
     if (savedGist) void runGistSync(savedGist, true);
     const onVisible = () => {
@@ -306,7 +330,10 @@ export default function VocabularyDesk() {
   function updateExamDate(next: string) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
     setExamDate(next);
-    try { localStorage.setItem(examDateKey, next); } catch {}
+    try {
+      localStorage.setItem(examDateKey, next);
+      mirrorKeyToDurable(examDateKey, next);
+    } catch {}
   }
 
   const cards = useMemo(() => vocabulary(entries), [entries]);
@@ -458,13 +485,16 @@ export default function VocabularyDesk() {
   function updateActiveSession(next: SavedSession | null) {
     setActiveSession(next);
     writeSavedSession(next);
-    setSavedSession(next && next.position < next.queueIds.length ? next : null);
+    setSavedSessionsMap(readAllSavedSessions());
   }
 
   function unlockBatchDay(dayNum: number) {
     if (dayNum <= activeDay) return;
     setUnlockedPref(dayNum);
-    try { localStorage.setItem(batchUnlockKey, String(dayNum)); } catch {}
+    try {
+      localStorage.setItem(batchUnlockKey, String(dayNum));
+      mirrorKeyToDurable(batchUnlockKey, String(dayNum));
+    } catch {}
     setNotice(`已自动开启第 ${dayNum} 天词书，并纳入日常复习池。`);
   }
 
@@ -474,20 +504,60 @@ export default function VocabularyDesk() {
     setSource(""); setCategory(""); setBatch(""); setQuery(""); setLimit(40); setCurveCard(""); setNotice(""); setError("");
   }
 
-  function launchSession(deck: DeckItem, mode: Mode, forceAll = false) {
+  function resumeSessionObj(target: SavedSession): boolean {
+    const validQueue = target.queueIds.filter(id => cardsById.has(id));
+    if (!validQueue.length || target.position >= validQueue.length) {
+      clearSavedSessionSlot(target.deckId, target.studyKind);
+      setSavedSessionsMap(readAllSavedSessions());
+      return false;
+    }
+    const currentCard = cardsById.get(target.queueIds[target.position]);
+    if (currentCard && audioPrefs.autoPlay && target.mode !== "recall") {
+      speakEnglish(currentCard.term, {
+        rate: audioPrefs.rate,
+        dedupeKey: `card:${target.position}:${currentCard.entry.id}`,
+      });
+    }
+    setNotice("");
+    setView("review");
+    setActiveSession(target);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return true;
+  }
+
+  function launchSession(deck: DeckItem, mode: Mode, studyKind?: StudyKind, allowResume = false) {
     if (deck.dayNum && deck.dayNum > activeDay) unlockBatchDay(deck.dayNum);
+    const playable = deck.cards.filter(card => eligible(card, mode));
+    const buckets = partitionPool(playable, today);
+    const resolvedKind: StudyKind =
+      studyKind ?? (buckets.unlearned.length > 0 ? "new" : buckets.dueReview.length > 0 ? "review" : "free");
+
+    // If user clicked "学新词" / "去复习" and already has an unfinished group for this exact deck + kind, seamlessly resume it!
+    if (allowResume) {
+      const existing = savedSessionsMap[sessionSlotKey(deck.id, resolvedKind)];
+      if (existing && existing.mode === mode && resumeSessionObj(existing)) {
+        return;
+      }
+    }
+
     const built = buildStudySession({
       deckId: deck.id,
       deckLabel: deck.title,
+      studyKind: resolvedKind,
       pool: deck.cards,
       mode,
       groupSize: studyPrefs.groupSize,
       shuffle: studyPrefs.shuffle,
       today,
-      forceAll,
     });
     if (!built) {
-      setNotice("当前词本在该模式下暂无可练词条，试试切换「看词识义」模式。");
+      setNotice(
+        resolvedKind === "new"
+          ? `「${deck.title}」的新词已全部学完，可点击「去复习」巩固旧词或切换下一天词书。`
+          : resolvedKind === "review"
+            ? `「${deck.title}」今日到期复习已清空！`
+            : "当前词本在该模式下暂无可练词条，试试切换「看词识义」模式。",
+      );
       return;
     }
     // Synchronously trigger first word pronunciation inside the click gesture for iPhone Safari auto-play!
@@ -498,42 +568,23 @@ export default function VocabularyDesk() {
     setNotice("");
     setView("review");
     setActiveSession(built);
-    setSavedSession(built);
+    setSavedSessionsMap(readAllSavedSessions());
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function resumeSavedSession() {
-    if (!savedSession) return;
-    const validQueue = savedSession.queueIds.filter(id => cardsById.has(id));
-    if (!validQueue.length || savedSession.position >= validQueue.length) {
-      writeSavedSession(null);
-      setSavedSession(null);
-      return;
-    }
-    const currentCard = cardsById.get(savedSession.queueIds[savedSession.position]);
-    if (currentCard && audioPrefs.autoPlay && savedSession.mode !== "recall") {
-      speakEnglish(currentCard.term, {
-        rate: audioPrefs.rate,
-        dedupeKey: `card:${savedSession.position}:${currentCard.entry.id}`,
-      });
-    }
-    setView("review");
-    setActiveSession(savedSession);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  function discardSavedSlot(deckId: string, studyKind: StudyKind) {
+    clearSavedSessionSlot(deckId, studyKind);
+    setSavedSessionsMap(readAllSavedSessions());
   }
 
-  function discardSavedSession() {
-    writeSavedSession(null);
-    setSavedSession(null);
-  }
-
-  function startCustomCards(customCards: Card[], deckLabel: string, mode: Mode) {
+  function startCustomCards(customCards: Card[], deckLabel: string, mode: Mode, studyKind: StudyKind = "review") {
     const playable = customCards.filter(card => eligible(card, mode));
     if (!playable.length) return;
     const queueIds = playable.map(c => c.entry.id);
     const built: SavedSession = {
       deckId: "custom",
       deckLabel,
+      studyKind,
       mode,
       queueIds,
       position: 0,
@@ -552,13 +603,13 @@ export default function VocabularyDesk() {
     }
     setView("review");
     setActiveSession(built);
-    setSavedSession(built);
+    setSavedSessionsMap(readAllSavedSessions());
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function startRescue(rescueCards: Card[], mode: Mode) {
     setNotice(`已启动临界遗忘抢救模式（共 ${rescueCards.length} 条）。`);
-    startCustomCards(rescueCards, "遗忘预警抢救", mode);
+    startCustomCards(rescueCards, "遗忘预警抢救", mode, "review");
   }
 
   function speak(card: Card) {
@@ -590,7 +641,7 @@ export default function VocabularyDesk() {
     }
   }
 
-  async function persist(entry: Entry, action: "pass"|"again"|"save", fields?: Record<string,string>) {
+  async function persist(entry: Entry, action: "pass"|"again"|"save"|"master"|"reset", fields?: Record<string,string>) {
     setBusy(true); setError("");
     try {
       const saved = await saveRecord(entry,action,fields);
@@ -599,6 +650,19 @@ export default function VocabularyDesk() {
       return true;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "保存失败，请重试。");
+      return false;
+    } finally { setBusy(false); }
+  }
+
+  async function undoRecord(snapshot: Entry) {
+    setBusy(true); setError("");
+    try {
+      const restored = await restoreRecord(snapshot);
+      setEntries(previous => [...previous.filter(item => item.id !== restored.id), restored]);
+      scheduleGistSync();
+      return true;
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "撤销失败，请重试。");
       return false;
     } finally { setBusy(false); }
   }
@@ -656,27 +720,81 @@ export default function VocabularyDesk() {
     () => (activeDeck?.cards ?? []).filter(card => eligible(card, selectedMode)),
     [activeDeck, selectedMode],
   );
-  const activeDeckDue = useMemo(
-    () => activeDeckPlayable.filter(card => !card.entry.due || card.entry.due <= today),
+  const activeDeckBuckets = useMemo(
+    () => partitionPool(activeDeckPlayable, today),
     [activeDeckPlayable, today],
   );
-  const nextBatchSize = activeDeckDue.length
-    ? (studyPrefs.groupSize > 0 ? Math.min(studyPrefs.groupSize, activeDeckDue.length) : activeDeckDue.length)
-    : (studyPrefs.groupSize > 0 ? Math.min(studyPrefs.groupSize, activeDeckPlayable.length) : activeDeckPlayable.length);
+  const activeDeckAllBuckets = useMemo(
+    () => partitionPool(activeDeck?.cards ?? [], today),
+    [activeDeck, today],
+  );
+  const globalDueReviewCards = useMemo(
+    () => partitionPool(cards, today).dueReview,
+    [cards, today],
+  );
+  const todayActivity = useMemo(
+    () => countTodayActivity(cards, today),
+    [cards, today],
+  );
+
+  const activeNewBatch = studyPrefs.groupSize > 0
+    ? Math.min(studyPrefs.groupSize, activeDeckBuckets.unlearned.length)
+    : activeDeckBuckets.unlearned.length;
+  const activeReviewBatch = studyPrefs.groupSize > 0
+    ? Math.min(studyPrefs.groupSize, activeDeckBuckets.dueReview.length)
+    : activeDeckBuckets.dueReview.length;
+
+  const activeNewSaved = activeDeck ? savedSessionsMap[sessionSlotKey(activeDeck.id, "new")] ?? null : null;
+  const activeReviewSaved = activeDeck ? savedSessionsMap[sessionSlotKey(activeDeck.id, "review")] ?? null : null;
+  const activeDeckSaved = activeNewSaved ?? activeReviewSaved ?? (
+    activeDeck
+      ? Object.values(savedSessionsMap).find(s => s.deckId === activeDeck.id) ?? null
+      : null
+  );
+
+  const nextBookDeckHint = useMemo(() => {
+    const targetDeckId = activeSession?.deckId ?? activeDeck?.id ?? "";
+    const cur = decks.find(d => d.id === targetDeckId);
+    if (!cur?.dayNum) return undefined;
+    const nextDeck = decks.find(d => d.dayNum === cur.dayNum! + 1);
+    if (!nextDeck) return undefined;
+    const unlearnedCount = partitionPool(nextDeck.cards, today).unlearned.length;
+    return unlearnedCount > 0 ? { deckId: nextDeck.id, title: nextDeck.title, unlearnedCount } : undefined;
+  }, [activeSession?.deckId, activeDeck?.id, decks, today]);
+
+  const activeSessionRemaining = useMemo(() => {
+    if (!activeSession) return undefined;
+    const target = decks.find(d => d.id === activeSession.deckId);
+    if (!target) return undefined;
+    const b = partitionPool(target.cards.filter(c => eligible(c, activeSession.mode)), today);
+    const allB = partitionPool(target.cards, today);
+    return {
+      unlearned: b.unlearned.length,
+      dueReview: b.dueReview.length,
+      learned: allB.dueReview.length + allB.solid.length,
+      total: target.cards.length,
+    };
+  }, [activeSession, decks, today]);
+
+  function changeDeckTab(nextTab: "book" | "reading" | "smart") {
+    setDeckTab(nextTab);
+    saveDeckTab(nextTab);
+  }
 
   function selectDeck(deck: DeckItem, startImmediately: boolean) {
     setSelectedDeckId(deck.id);
+    saveSelectedDeckId(deck.id);
     if (deck.dayNum && deck.dayNum > activeDay) unlockBatchDay(deck.dayNum);
     let nextMode = selectedMode;
     if (!deck.cards.some(c => eligible(c, selectedMode)) && deck.cards.some(c => eligible(c, "recognize"))) {
       nextMode = "recognize";
       setSelectedMode("recognize");
     }
-    if (startImmediately) launchSession(deck, nextMode);
+    if (startImmediately) launchSession(deck, nextMode, undefined, true);
   }
 
   const tabDecks = useMemo(() => decks.filter(d => d.section === deckTab), [decks, deckTab]);
-  const activeDeckLearned = activeDeck ? activeDeck.cards.filter(c => Boolean(c.entry.reviewed)).length : 0;
+  const activeDeckLearned = activeDeckAllBuckets.dueReview.length + activeDeckAllBuckets.solid.length;
   const activeDeckPct = activeDeck?.cards.length ? Math.round((activeDeckLearned / activeDeck.cards.length) * 100) : 0;
 
   const navCounts: Partial<Record<View, string>> = ready ? {
@@ -818,67 +936,144 @@ export default function VocabularyDesk() {
         {view==="review" && <>
           {!activeSession && (
             <div className="home-split">
-              {/* Left Column: Clean, Calm Study Start Card */}
+              {/* Left Column: Mainstream Vocab-App Study Hub (Clear Learn New vs Review Due) */}
               <section className="home-start-card">
                 <div className="home-start-head">
                   <div>
-                    <span className="home-start-kicker">当前词表</span>
-                    <span className="home-start-deck-name">{activeDeck?.title || "第 1 天词书"}</span>
+                    <span className="home-start-kicker">当前词书 · 已学 {activeDeckLearned}/{activeDeck?.cards.length ?? 0}（{activeDeckPct}%）</span>
+                    <div className="home-deck-title-row">
+                      <span className="home-start-deck-name">{activeDeck?.title || "第 1 天词书"}</span>
+                      <button
+                        type="button"
+                        className="home-inspect-btn"
+                        disabled={!ready || !activeDeck?.cards.length}
+                        onClick={() => setDeckProgressOpen(true)}
+                        title="查看本词表已学、未学、待复习的具体单词"
+                      >
+                        <ListChecks size={13}/>词表进度
+                      </button>
+                    </div>
                   </div>
-                  <img className="home-start-mascot" src={heroArt} alt="" width="56" height="56"/>
+                  <img className="home-start-mascot" src={heroArt} alt="" width="52" height="52"/>
                 </div>
 
-                <div className="home-start-center">
-                  {ready && savedSession && (
-                    <div className="home-resume-chip">
-                      <Play size={12}/>
-                      <span>上次进度：{savedSession.deckLabel}（{savedSession.position + 1}/{savedSession.queueIds.length}）</span>
-                      <button type="button" aria-label="清除断点" onClick={discardSavedSession}><X size={12}/></button>
-                    </div>
-                  )}
-
-                  <div className="home-big-stat">
-                    <strong>{ready ? activeDeckDue.length : "—"}</strong>
-                    <span>词待背</span>
-                  </div>
-
-                  <p className="home-start-meta">
-                    今日已背 <b>{reviewed}</b> 词 · 本表已学 <b>{activeDeckLearned}/{activeDeck?.cards.length ?? 0}</b>
-                  </p>
-
-                  <div className="home-start-bar" aria-hidden="true">
+                {/* Progress Bar + 3 Distinct Buckets (Never mixes New & Due Review!) */}
+                <div className="home-mastery-box">
+                  <div className="home-start-bar wide" aria-hidden="true">
                     <i style={{ width: `${activeDeckPct}%` }}/>
                   </div>
-                </div>
+                  <div className="home-trio-stats">
+                    <div className="home-trio-cell new">
+                      <strong>{ready ? activeDeckBuckets.unlearned.length : "—"}</strong>
+                      <span>未学新词</span>
+                    </div>
+                    <div className="home-trio-cell due">
+                      <strong>{ready ? activeDeckBuckets.dueReview.length : "—"}</strong>
+                      <span>今日待复习</span>
+                    </div>
+                    <div className="home-trio-cell solid">
+                      <strong>{ready ? activeDeckBuckets.solid.length : "—"}</strong>
+                      <span>已稳固</span>
+                    </div>
+                  </div>
 
-                <div className="home-start-actions">
-                  {ready && savedSession ? (
-                    <>
-                      <button type="button" className="home-cta-primary full" onClick={resumeSavedSession}>
-                        <Play size={18}/>继续上次背诵 ({savedSession.position + 1}/{savedSession.queueIds.length})
+                  {ready && activeDeckSaved && (
+                    <div className="home-resume-chip">
+                      <Play size={12}/>
+                      <button
+                        type="button"
+                        className="home-resume-go"
+                        onClick={() => resumeSessionObj(activeDeckSaved)}
+                      >
+                        继续上次{activeDeckSaved.studyKind === "new" ? "新词" : activeDeckSaved.studyKind === "review" ? "复习" : "练习"}（{activeDeckSaved.position + 1}/{activeDeckSaved.queueIds.length}）
                       </button>
                       <button
                         type="button"
-                        className="home-cta-secondary full"
-                        disabled={!activeDeckPlayable.length}
-                        onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                        className="home-resume-x"
+                        aria-label="清除断点"
+                        onClick={() => discardSavedSlot(activeDeckSaved.deckId, activeDeckSaved.studyKind)}
                       >
-                        开背「{activeDeck?.title}」· {nextBatchSize} 词
+                        <X size={12}/>
                       </button>
-                    </>
-                  ) : (
+                    </div>
+                  )}
+                </div>
+
+                {/* Iconic Dual Study Buttons: Learn New | Review Due */}
+                <div className="home-start-actions">
+                  <div className="home-dual-cta">
                     <button
                       type="button"
-                      className="home-cta-primary full"
-                      disabled={!ready || !activeDeckPlayable.length}
-                      onClick={() => activeDeck && launchSession(activeDeck, selectedMode)}
+                      className={"home-cta-learn " + (!activeDeckBuckets.unlearned.length ? "done" : "")}
+                      disabled={!ready || (!activeDeckBuckets.unlearned.length && !activeNewSaved)}
+                      onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "new", true)}
                     >
-                      <Play size={18}/>
-                      {activeDeckDue.length
-                        ? `开始背诵 · ${nextBatchSize} 词`
-                        : activeDeckPlayable.length
-                          ? `继续下一组复习 · ${nextBatchSize} 词`
-                          : "当前词表暂无可练词条"}
+                      <span className="home-cta-top"><Sparkles size={16}/>{activeNewSaved ? "继续学新词" : "学新词"}</span>
+                      <small>
+                        {activeNewSaved
+                          ? `断点 ${activeNewSaved.position + 1}/${activeNewSaved.queueIds.length}`
+                          : activeDeckBuckets.unlearned.length
+                            ? `剩 ${activeDeckBuckets.unlearned.length} 词 · 本组 ${activeNewBatch}`
+                            : "本表新词已学完 ✓"}
+                      </small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={"home-cta-review " + (!activeDeckBuckets.dueReview.length && !activeReviewSaved ? "done" : "")}
+                      disabled={!ready || (!activeDeckBuckets.dueReview.length && !activeReviewSaved && !globalDueReviewCards.length)}
+                      onClick={() => {
+                        if (activeDeck && (activeDeckBuckets.dueReview.length || activeReviewSaved)) {
+                          launchSession(activeDeck, selectedMode, "review", true);
+                        } else if (globalDueReviewCards.length) {
+                          const batch = studyPrefs.groupSize > 0 ? globalDueReviewCards.slice(0, studyPrefs.groupSize) : globalDueReviewCards;
+                          startCustomCards(batch, "全库到期复习", selectedMode, "review");
+                        }
+                      }}
+                    >
+                      <span className="home-cta-top"><RotateCcw size={15}/>{activeReviewSaved ? "继续复习" : "去复习"}</span>
+                      <small>
+                        {activeReviewSaved
+                          ? `断点 ${activeReviewSaved.position + 1}/${activeReviewSaved.queueIds.length}`
+                          : activeDeckBuckets.dueReview.length
+                            ? `待复 ${activeDeckBuckets.dueReview.length} 词 · 本组 ${activeReviewBatch}`
+                            : globalDueReviewCards.length
+                              ? `本表已清 · 全库 ${globalDueReviewCards.length}`
+                              : "今日复习已清 ✓"}
+                      </small>
+                    </button>
+                  </div>
+
+                  {ready && activeDeckBuckets.unlearned.length > 0 && activeDeckBuckets.dueReview.length > 0 && (
+                    <button
+                      type="button"
+                      className="home-cta-secondary full"
+                      onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "mix", false)}
+                    >
+                      <Layers size={14}/>智能混合背诵（新词 + 复习穿插）
+                    </button>
+                  )}
+
+                  {ready && activeDeckBuckets.unlearned.length === 0 && nextBookDeckHint && (
+                    <button
+                      type="button"
+                      className="home-cta-secondary full"
+                      onClick={() => {
+                        const target = decks.find(d => d.id === nextBookDeckHint.deckId);
+                        if (target) selectDeck(target, true);
+                      }}
+                    >
+                      <Play size={14}/>开启「{nextBookDeckHint.title}」继续学新词（{nextBookDeckHint.unlearnedCount} 词）
+                    </button>
+                  )}
+
+                  {ready && activeDeckBuckets.unlearned.length === 0 && activeDeckBuckets.dueReview.length === 0 && activeDeckPlayable.length > 0 && (
+                    <button
+                      type="button"
+                      className="home-cta-secondary full"
+                      onClick={() => activeDeck && launchSession(activeDeck, selectedMode, "free", false)}
+                    >
+                      <Play size={14}/>本表已清空 · 自由速刷巩固
                     </button>
                   )}
                 </div>
@@ -934,13 +1129,21 @@ export default function VocabularyDesk() {
                       <span>{studyPrefs.shuffle ? "随机" : "顺序"}</span>
                     </button>
                   </div>
+
+                  <div className="home-today-strip">
+                    <span>今日新学 <b>{todayActivity.newToday}</b></span>
+                    <i>·</i>
+                    <span>今日复习 <b>{todayActivity.reviewedToday}</b></span>
+                    <i>·</i>
+                    <span>连胜 <b>{streak}</b> 天</span>
+                  </div>
                 </div>
               </section>
 
-              {/* Right Column: Intuitive Categorized Wordlist Picker */}
+              {/* Right Column: Intuitive Categorized Wordlist Picker with Honest New / Due Progress */}
               <section className="v-panel home-deck-panel">
                 <div className="home-deck-panel-head">
-                  <h2>选择词表</h2>
+                  <h2>切换词表</h2>
                   <button type="button" className="v-secondary rc-mini-btn" onClick={() => setGptModalOpen(true)}>
                     <Upload size={14}/>导入 GPT 词单
                   </button>
@@ -952,7 +1155,7 @@ export default function VocabularyDesk() {
                     role="tab"
                     aria-selected={deckTab === "book"}
                     className={deckTab === "book" ? "active" : ""}
-                    onClick={() => setDeckTab("book")}
+                    onClick={() => changeDeckTab("book")}
                   >
                     词书词表
                   </button>
@@ -961,7 +1164,7 @@ export default function VocabularyDesk() {
                     role="tab"
                     aria-selected={deckTab === "reading"}
                     className={deckTab === "reading" ? "active" : ""}
-                    onClick={() => setDeckTab("reading")}
+                    onClick={() => changeDeckTab("reading")}
                   >
                     阅读积累 <i>{readingAllCards.length}</i>
                   </button>
@@ -970,7 +1173,7 @@ export default function VocabularyDesk() {
                     role="tab"
                     aria-selected={deckTab === "smart"}
                     className={deckTab === "smart" ? "active" : ""}
-                    onClick={() => setDeckTab("smart")}
+                    onClick={() => changeDeckTab("smart")}
                   >
                     综合 & GPT
                   </button>
@@ -980,8 +1183,8 @@ export default function VocabularyDesk() {
                   {tabDecks.map(deck => {
                     const selected = deck.id === selectedDeckId;
                     const total = deck.cards.length;
-                    const learned = deck.cards.filter(c => Boolean(c.entry.reviewed)).length;
-                    const dueCnt = deck.cards.filter(c => !c.entry.due || c.entry.due <= today).length;
+                    const b = partitionPool(deck.cards, today);
+                    const learned = b.dueReview.length + b.solid.length;
                     const pct = total ? Math.round((learned / total) * 100) : 0;
                     return (
                       <div key={deck.id} className={"deck-row " + (selected ? "selected" : "")}>
@@ -996,12 +1199,14 @@ export default function VocabularyDesk() {
                           </span>
                           <div className="deck-row-text">
                             <strong>{deck.title}</strong>
-                            <small>{deck.subtitle}</small>
+                            <small>已学 {learned}/{total} · {deck.subtitle}</small>
                           </div>
                           <div className="deck-row-stats">
-                            <span className={"deck-due-pill " + (dueCnt ? "" : "done")}>
-                              {dueCnt ? `待背 ${dueCnt}` : "已清"}
-                            </span>
+                            <div className="deck-chip-group">
+                              {b.unlearned.length > 0 && <span className="deck-mini-chip new">新 {b.unlearned.length}</span>}
+                              {b.dueReview.length > 0 && <span className="deck-mini-chip due">复 {b.dueReview.length}</span>}
+                              {!b.unlearned.length && !b.dueReview.length && <span className="deck-mini-chip done">已清</span>}
+                            </div>
                             <span className="deck-row-bar"><i style={{ width: `${pct}%` }}/></span>
                           </div>
                         </button>
@@ -1009,8 +1214,8 @@ export default function VocabularyDesk() {
                           type="button"
                           className="deck-row-play"
                           disabled={!total}
-                          title={`直接开始背诵「${deck.title}」`}
-                          aria-label={`直接开始背诵 ${deck.title}`}
+                          title={b.unlearned.length ? `学「${deck.title}」剩余新词` : b.dueReview.length ? `复习「${deck.title}」到期词` : `速刷「${deck.title}」`}
+                          aria-label={`开始学习 ${deck.title}`}
                           onClick={() => selectDeck(deck, true)}
                         >
                           <Play size={14}/>
@@ -1028,10 +1233,10 @@ export default function VocabularyDesk() {
                 </div>
 
                 <div className="home-deck-panel-foot">
-                  <span className="v-muted">今日完成 {todayGoalPct}% · 听力掌握 {listenGoalPct}% · 连胜 {streak} 天</span>
+                  <span className="v-muted">今日完成 {todayGoalPct}% · 听力掌握 {listenGoalPct}% · 进度本地+IDB双备份</span>
                   <div className="home-deck-foot-links">
                     <button type="button" className="home-link-btn" onClick={() => setSyncModalOpen(true)}>
-                      <Settings2 size={13}/>同步与备份
+                      <Settings2 size={13}/>云同步与备份
                     </button>
                     <a className="home-link-btn" href={readingDocUrl} target="_blank" rel="noreferrer">
                       阅读源文档 <ExternalLink size={12}/>
@@ -1050,15 +1255,23 @@ export default function VocabularyDesk() {
               busy={busy}
               audioPrefs={audioPrefs}
               studyPrefs={studyPrefs}
+              deckRemaining={activeSessionRemaining}
+              nextDeckHint={nextBookDeckHint}
               onUpdateAudioPrefs={updateAudioPrefs}
               onUpdateStudyPrefs={updateStudyPrefs}
               onSessionChange={updateActiveSession}
               onRate={(entry, passed) => persist(entry, passed ? "pass" : "again")}
-              onNextGroup={(deckId, mode) => {
+              onMaster={entry => persist(entry, "master")}
+              onUndo={undoRecord}
+              onNextGroup={(deckId, mode, kind) => {
                 const target = decks.find(d => d.id === deckId) ?? activeDeck;
-                if (target) launchSession(target, mode);
+                if (target) {
+                  setSelectedDeckId(target.id);
+                  saveSelectedDeckId(target.id);
+                  launchSession(target, mode, kind, false);
+                }
               }}
-              onRetryWrong={(wrongCards, label, mode) => startCustomCards(wrongCards, label, mode)}
+              onRetryWrong={(wrongCards, label, mode) => startCustomCards(wrongCards, label, mode, "review")}
               onExit={() => setActiveSession(null)}
             />
           )}
@@ -1237,6 +1450,18 @@ export default function VocabularyDesk() {
       busy={busy}
       onClose={() => setGptModalOpen(false)}
       onImport={handleGptImport}
+    />
+    <DeckProgressModal
+      open={deckProgressOpen}
+      deckTitle={activeDeck?.title || "当前词表"}
+      cards={activeDeck?.cards ?? []}
+      today={today}
+      busy={busy}
+      speechRate={audioPrefs.rate}
+      onClose={() => setDeckProgressOpen(false)}
+      onMaster={entry => persist(entry, "master")}
+      onReset={entry => persist(entry, "reset")}
+      onStartKind={kind => activeDeck && launchSession(activeDeck, selectedMode, kind, true)}
     />
   </div>;
 }

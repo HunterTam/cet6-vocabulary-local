@@ -1,12 +1,13 @@
 import { dailyVocabulary } from "./daily-vocabulary";
 import { dateKey, nextDate, seed, type Entry } from "./data";
-import { nextReview } from "./review-schedule";
+import { nextReview, reviewIntervals } from "./review-schedule";
 import { listeningSeed } from "./listening-data";
 import { parseReadingDoc, readingVocabulary, extraStudyVocabulary, type ParsedImportCard } from "./reading-vocabulary";
+import { mirrorKeyToDurable } from "./durable-store";
 
 const storageKey = "cet6-vocabulary-local-v1";
 const driveKey = "cet6-vocabulary-drive-v1";
-type Action = "pass" | "again" | "save";
+type Action = "pass" | "again" | "save" | "master" | "reset";
 let baseCache: Map<string,Entry> | undefined;
 
 function sha256Hex(text: string): string {
@@ -79,7 +80,11 @@ function localBaseSync(): Map<string,Entry> {
 
 const loadBase = async () => localBaseSync();
 const readLocal = (): Entry[] => JSON.parse(localStorage.getItem(storageKey) || "[]");
-const writeLocal = (records: Iterable<Entry>) => localStorage.setItem(storageKey,JSON.stringify([...records]));
+const writeLocal = (records: Iterable<Entry>) => {
+  const raw = JSON.stringify([...records]);
+  localStorage.setItem(storageKey, raw);
+  mirrorKeyToDurable(storageKey, raw);
+};
 const validDate = (value:unknown) => typeof value === "string" && (value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value));
 function validFields(value:unknown) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) &&
@@ -133,7 +138,11 @@ export async function mergeDriveFeed(text:string) {
     if (JSON.stringify(fields)!==JSON.stringify(previous?.fields)) changed++;
     existing.set(id,{...row,fields,source:{key:row.source!.key,fields}});
   }
-  if (changed) localStorage.setItem(driveKey,JSON.stringify([...existing.values()]));
+  if (changed) {
+    const raw = JSON.stringify([...existing.values()]);
+    localStorage.setItem(driveKey, raw);
+    mirrorKeyToDurable(driveKey, raw);
+  }
   return changed;
 }
 
@@ -161,7 +170,11 @@ export async function mergeReadingDriveDoc(text:string) {
       existing.set(id,{...row,fields,source:{key:row.source!.key,fields}});
     }
   }
-  if (changed) localStorage.setItem(driveKey,JSON.stringify([...existing.values()]));
+  if (changed) {
+    const raw = JSON.stringify([...existing.values()]);
+    localStorage.setItem(driveKey, raw);
+    mirrorKeyToDurable(driveKey, raw);
+  }
   return changed;
 }
 
@@ -204,7 +217,21 @@ export async function saveRecord(input:Entry, action:Action, fields?:Entry["fiel
     }
     entry.fields = fields;
   } else if ((input.kind==="note" || input.kind==="listening") && previous) {
-    Object.assign(entry,nextReview(previous,action==="pass"));
+    if (action==="master") {
+      const topStage = reviewIntervals.length - 1;
+      const due = nextDate(reviewIntervals[topStage]);
+      const reviewed = dateKey();
+      entry.stage = topStage;
+      entry.due = due;
+      entry.reviewed = reviewed;
+      entry.reviewLog = [...(previous.reviewLog ?? []), { at: new Date().toISOString(), passed: true, stage: topStage, due }].slice(-60);
+    } else if (action==="reset") {
+      entry.stage = 0;
+      entry.due = dateKey();
+      entry.reviewed = previous.reviewed || dateKey();
+    } else {
+      Object.assign(entry,nextReview(previous,action==="pass"));
+    }
   } else if (input.kind==="question" && previous) {
     entry.reviewed=dateKey();
     entry.due=nextDate(1);
@@ -214,6 +241,20 @@ export async function saveRecord(input:Entry, action:Action, fields?:Entry["fiel
   local.set(entry.id,entry);
   writeLocal(local.values());
   return entry;
+}
+
+/**
+ * Restores a record back to its pre-rating snapshot (used by the Flashcard Undo button).
+ */
+export async function restoreRecord(snapshot: Entry): Promise<Entry> {
+  const local = new Map(readLocal().map(entry => [entry.id, entry]));
+  if (snapshot.version === 0 && !snapshot.reviewed && !(snapshot.reviewLog?.length) && !snapshot.history.length) {
+    local.delete(snapshot.id);
+  } else {
+    local.set(snapshot.id, snapshot);
+  }
+  writeLocal(local.values());
+  return (await resolvedRecords()).get(snapshot.id) ?? snapshot;
 }
 
 export function importRecords(text:string) {

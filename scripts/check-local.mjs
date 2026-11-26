@@ -139,4 +139,59 @@ const gptParsed = parseGptWordList("1. **resilience** /rɪˈzɪliəns/｜韧性�
 assert.equal(gptParsed.length, 2);
 assert.equal(gptParsed[0].title, "resilience");
 assert.equal(gptParsed[1].category, "固定搭配");
-console.log("Offline bundle, 341 starter words, 113+ reading notes, listening and vocabulary progress, backup merge, cloud sync merge, GPT import, and Drive deduplication passed.");
+
+// Verify mainstream vocab-app New vs Review separation across days, plus Master ("斩") and Undo!
+const { buildStudySession, partitionPool } = await load("study-session");
+const { nextDate } = await load("data");
+const day3Cards = vocabulary(await store.listRecords()).filter(c => c.entry.fields.batch === "3");
+assert.ok(day3Cards.length >= 75, "Day 3 deck should exist with 75+ words");
+// Simulate studying 70 words of Day 3 yesterday (due today)
+const todayIso = nextDate(0);
+const yesterdayIso = nextDate(-1);
+const simulatedDay3 = day3Cards.map((c, idx) =>
+  idx < 70
+    ? { ...c, entry: { ...c.entry, reviewed: yesterdayIso, due: todayIso, stage: 0, version: 1 } }
+    : c,
+);
+const parts = partitionPool(simulatedDay3, todayIso);
+assert.equal(parts.unlearned.length, day3Cards.length - 70);
+assert.equal(parts.dueReview.length, 70);
+// Starting "new" today MUST strictly serve ONLY the remaining unlearned words (never restart from word #1!)
+const newSession = buildStudySession({
+  deckId: "day-3",
+  deckLabel: "第 3 天词书",
+  studyKind: "new",
+  pool: simulatedDay3,
+  mode: "recognize",
+  groupSize: 20,
+  shuffle: false,
+  today: todayIso,
+});
+assert.ok(newSession);
+assert.equal(newSession.queueIds.length, Math.min(20, day3Cards.length - 70));
+assert.equal(newSession.queueIds[0], simulatedDay3[70].entry.id, "New session must continue right at word #71");
+// Starting "review" today MUST strictly serve ONLY the 70 due words from yesterday
+const revSession = buildStudySession({
+  deckId: "day-3",
+  deckLabel: "第 3 天词书",
+  studyKind: "review",
+  pool: simulatedDay3,
+  mode: "recognize",
+  groupSize: 20,
+  shuffle: false,
+  today: todayIso,
+});
+assert.ok(revSession);
+assert.equal(revSession.queueIds.length, 20);
+assert.ok(revSession.queueIds.every(id => simulatedDay3.slice(0, 70).some(c => c.entry.id === id)));
+// Verify "master" ("斩") jumps straight to stage 6 and restoreRecord (Undo) cleanly reverts it
+const freshDay3Entry = (await store.listRecords()).find(r => r.id === day3Cards[0].entry.id);
+const beforeMaster = JSON.parse(JSON.stringify(freshDay3Entry));
+const mastered = await store.saveRecord(freshDay3Entry, "master");
+assert.equal(mastered.stage, 6);
+assert.ok(mastered.due > mastered.reviewed);
+const undone = await store.restoreRecord(beforeMaster);
+assert.equal(undone.stage, beforeMaster.stage);
+assert.equal(undone.reviewed, beforeMaster.reviewed);
+
+console.log("Offline bundle, 341 starter words, 113+ reading notes, listening and vocabulary progress, backup merge, cloud sync merge, GPT import, cross-day New/Review separation, Master & Undo, and Drive deduplication passed.");

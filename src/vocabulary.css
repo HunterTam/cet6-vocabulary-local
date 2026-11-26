@@ -2668,6 +2668,466 @@ details[open] .v-chevron-pill {
   transform: translateY(-1px);
 }
 
+/* Mainstream Vocab App Home Study Hub (不背单词 / 墨墨 Style Dual Learn + Review) */
+.home-deck-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.home-inspect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 93, 250, 0.25);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--accent-deep);
+  font-size: 11.5px;
+  font-weight: 720;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.home-inspect-btn:hover:not(:disabled) {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.home-mastery-box {
+  display: grid;
+  gap: 12px;
+}
+
+.home-start-bar.wide {
+  width: 100%;
+  height: 9px;
+}
+
+.home-trio-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.home-trio-cell {
+  padding: 11px 8px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  text-align: center;
+  display: grid;
+  gap: 2px;
+  box-shadow: 0 6px 16px rgba(105, 84, 162, 0.06);
+}
+
+.home-trio-cell strong {
+  font-size: 1.55rem;
+  font-weight: 880;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-trio-cell span {
+  font-size: 11.5px;
+  font-weight: 680;
+  color: var(--muted);
+}
+
+.home-trio-cell.new strong   { color: #6d4aff; }
+.home-trio-cell.due strong   { color: #d96420; }
+.home-trio-cell.solid strong { color: #169463; }
+
+.home-resume-go {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.home-resume-go:hover {
+  text-decoration: underline;
+}
+
+.home-dual-cta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.home-cta-learn,
+.home-cta-review {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 66px;
+  padding: 11px 12px;
+  border-radius: 20px;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  text-align: center;
+  transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 180ms ease, filter 160ms ease;
+}
+
+.home-cta-learn:active:not(:disabled),
+.home-cta-review:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.home-cta-learn {
+  background: linear-gradient(135deg, #8b6eff 0%, #6642f5 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(102, 66, 245, 0.28), inset 0 1px 1px rgba(255, 255, 255, 0.42);
+}
+
+.home-cta-learn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 28px rgba(102, 66, 245, 0.34);
+}
+
+.home-cta-review {
+  background: linear-gradient(135deg, #2cc58b 0%, #159463 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(21, 148, 99, 0.24), inset 0 1px 1px rgba(255, 255, 255, 0.38);
+}
+
+.home-cta-review:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 28px rgba(21, 148, 99, 0.32);
+}
+
+.home-cta-learn.done,
+.home-cta-review.done {
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  border-color: rgba(142, 132, 188, 0.22);
+  box-shadow: none;
+}
+
+.home-cta-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 15.5px;
+  font-weight: 820;
+  line-height: 1.15;
+}
+
+.home-cta-learn small,
+.home-cta-review small {
+  font-size: 11.5px;
+  font-weight: 640;
+  opacity: 0.92;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-today-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #5b5378;
+}
+
+.home-today-strip i {
+  font-style: normal;
+  opacity: 0.45;
+}
+
+.home-today-strip b {
+  color: #1e1b2e;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Deck Row Honest Dual Badges (新 / 复 / 已清) */
+.deck-chip-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.deck-mini-chip {
+  font-size: 10.5px;
+  font-weight: 780;
+  padding: 1.5px 7px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.deck-mini-chip.new  { background: var(--accent-soft); color: var(--accent-deep); }
+.deck-mini-chip.due  { background: var(--peach-soft); color: #b85014; }
+.deck-mini-chip.done { background: var(--mint-soft); color: #147a52; }
+
+/* Flashcard Studio Study Kind Badge, Undo & Master ("斩") Controls */
+.fs-deck-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fs-kind-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.fs-kind-badge.new    { background: var(--accent-soft); color: var(--accent-deep); }
+.fs-kind-badge.review { background: var(--peach-soft); color: #b85014; }
+.fs-kind-badge.mix    { background: var(--mint-soft); color: #147a52; }
+.fs-kind-badge.free   { background: var(--sky-soft); color: #2563eb; }
+
+.fs-undo-btn {
+  color: var(--accent-deep);
+  border-color: rgba(124, 93, 250, 0.28);
+}
+
+.fs-master-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(32, 164, 114, 0.28);
+  background: rgba(236, 253, 245, 0.92);
+  color: #147a52;
+  font-size: 11.5px;
+  font-weight: 740;
+  transition: transform 160ms ease, background 150ms ease;
+}
+
+.fs-master-btn:hover:not(:disabled) {
+  background: #dcfce7;
+  transform: translateY(-1px);
+}
+
+.fs-master-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.fs-mini-toast {
+  align-self: center;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgba(236, 253, 245, 0.94);
+  border: 1px solid rgba(32, 164, 114, 0.26);
+  color: #147a52;
+  font-size: 12px;
+  font-weight: 700;
+  animation: v-card-enter 220ms ease both;
+}
+
+.fs-batch-recap {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(246, 244, 255, 0.8);
+  border: 1px solid rgba(142, 132, 188, 0.16);
+}
+
+.fs-recap-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.fs-recap-pill {
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 93, 250, 0.22);
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 680;
+}
+
+.fs-recap-pill:hover {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+/* Wordbook Progress Inspector Modal */
+.dpm-sheet {
+  width: min(680px, 100%);
+}
+
+.dpm-bar {
+  display: flex;
+  gap: 3px;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(142, 132, 188, 0.14);
+}
+
+.dpm-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.dpm-bar i.solid { background: linear-gradient(90deg, #6ee7b7, #189c68); }
+.dpm-bar i.due   { background: linear-gradient(90deg, #fdba74, #ea7535); }
+.dpm-bar i.fresh { background: #cbd5e1; }
+
+.dpm-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.dpm-tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(142, 132, 188, 0.18);
+  background: rgba(248, 246, 255, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.dpm-tab i {
+  font-style: normal;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(142, 132, 188, 0.15);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dpm-tab.active {
+  background: linear-gradient(135deg, #8b6eff, #6f4ef6);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.dpm-tab.active i {
+  background: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+.dpm-search {
+  width: 100%;
+}
+
+.dpm-list {
+  display: grid;
+  gap: 7px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.dpm-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(142, 132, 188, 0.15);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.dpm-speak {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(142, 132, 188, 0.2);
+  background: #f8f6ff;
+  color: var(--accent-deep);
+  display: grid;
+  place-items: center;
+}
+
+.dpm-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dpm-word-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.dpm-word-line strong {
+  font-size: 14px;
+  font-weight: 780;
+  color: var(--ink);
+}
+
+.dpm-status {
+  font-size: 10.5px;
+  font-weight: 760;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.dpm-status.fresh { background: rgba(142, 132, 188, 0.14); color: var(--muted); }
+.dpm-status.due   { background: var(--peach-soft); color: #b85014; }
+.dpm-status.solid { background: var(--mint-soft); color: #147a52; }
+
+.dpm-info p {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dpm-row-act {
+  flex: none;
+}
+
+.dpm-mini-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 28px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 132, 188, 0.24);
+  background: #ffffff;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  font-weight: 720;
+}
+
+.dpm-mini-act.master {
+  border-color: rgba(32, 164, 114, 0.3);
+  background: #ecfdf5;
+  color: #147a52;
+}
+
+.dpm-foot-ctas {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .home-start-foot {
   display: grid;
   gap: 10px;
@@ -5225,6 +5685,25 @@ details[open] .v-chevron-pill {
   .home-cta-primary.full {
     min-height: 48px;
     font-size: 15px;
+  }
+  .home-trio-cell {
+    padding: 9px 6px;
+    border-radius: 14px;
+  }
+  .home-trio-cell strong {
+    font-size: 1.35rem;
+  }
+  .home-cta-learn,
+  .home-cta-review {
+    min-height: 60px;
+    padding: 9px 8px;
+    border-radius: 17px;
+  }
+  .home-cta-top {
+    font-size: 14.5px;
+  }
+  .dpm-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .home-deck-panel {
     padding: 15px 14px;
